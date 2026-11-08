@@ -1,0 +1,26 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360">
+  <defs>
+    <linearGradient id="sky" x2="0" y2="1">
+      <stop stop-color="#171026" />
+      <stop offset="1" stop-color="#493066" />
+    </linearGradient>
+    <linearGradient id="ground" x2="0" y2="1">
+      <stop stop-color="#493653" />
+      <stop offset="1" stop-color="#21192e" />
+    </linearGradient>
+    <clipPath id="cam">
+      <path d="M18 246l12-12h153v84l-12 12H18z" />
+    </clipPath>
+    <path id="heart" d="M0 12C-4 8-15 1-15-6a8 8 0 0 1 15-3 8 8 0 0 1 15 3C15 1 4 8 0 12z" />
+  </defs>
+  <path fill="url(#sky)" d="M0 0h640v360H0z" />
+  <circle cx="421" cy="98" r="65" fill="#a970ff" opacity=".17" />
+  <path fill="#2e2142" d="M0 144l66-40 58 16 54-47 73 48 47-18 54 37 92-42 57 22 51-32 88 56v58H0z" />
+  <path fill="url(#ground)" d="M0 163l137-15 104 16 136-19 113 12 150-8v211H0z" />
+  <path fill="#221a30" d="M0 181l88-13 46 16-71 30H0zm478-12 53-12 79 11-38 21zm35 94 88-24 39 8v37l-65 3z" />
+  <path fill="none" stroke="#755487" stroke-width="2" opacity=".55" d="M63 224l85-35 61 8m-8 133 129-34 122 6m-179-114 55-11 42 6m173 46 42-12 40 3" />
+  <path fill="#30263e" d="M60 160v-24l19-19h67l24 19v25z" />
+  <path fill="#675376" d="M79 117h67l24 19H60z" />
+  <path fill="#1c1728" d="M83 141h54v9H83z" />
+</svg>

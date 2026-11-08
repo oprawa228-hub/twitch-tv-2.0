@@ -1,0 +1,28 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360">
+  <defs>
+    <linearGradient id="sky" x2="0" y2="1">
+      <stop stop-color="#171026" />
+      <stop offset="1" stop-color="#493066" />
+    </linearGradient>
+    <linearGradient id="ground" x2="0" y2="1">
+      <stop stop-color="#493653" />
+      <stop offset="1" stop-color="#21192e" />
+    </linearGradient>
+    <clipPath id="cam">
+      <path d="M18 246l12-12h153v84l-12 12H18z" />
+    </clipPath>
+    <path id="heart" d="M0 12C-4 8-15 1-15-6a8 8 0 0 1 15-3 8 8 0 0 1 15 3C15 1 4 8 0 12z" />
+  </defs>
+  <g transform="translate(-8 -103) scale(1.32)">
+    <g clip-path="url(#cam)">
+      <path fill="#d9997c" d="M73 292h51l10 17 5 21H48l8-23z" />
+      <path fill="#f9f3f2" d="M72 293h13q15 18 29 0h14l-3 16 8 21H66l9-23z" />
+      <path fill="#e4d8e6" d="M92 319q11-3 22 2l5 9H88z" />
+      <path fill="#edb38e" d="M88 279h24v14q-13 14-24 0z" />
+      <path fill="#edb38e" d="M76 260q1-16 25-16t25 16l-2 17-9 15H86l-10-13z" />
+      <path fill="#62455f" d="M75 266l7-5 1-11-7 5zm51 0-7-5-1-11 7 5zM79 276l7 3 5-5h21l5 5 7-3-9 16H86z" />
+      <path fill="#38293d" d="M86 262h10v3H86zm20 0h10v3h-10zm-11 18h12v4H95z" />
+    </g>
+  </g>
+</svg>

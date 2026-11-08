@@ -14,15 +14,22 @@ import androidx.tv.material3.Text
 import androidx.tv.material3.darkColorScheme
 
 object TvColors {
-    val Background = Color(0xFF0E0E10)
-    val Surface = Color(0xFF18181B)
-    val Raised = Color(0xFF26262C)
+    val Background = Color(0xFF0C0D12)
+    val Surface = Color(0xFF16171F)
+    val Raised = Color(0xFF242630)
     val Text = Color(0xFFF7F7F8)
-    val Muted = Color(0xFFADADB8)
+    val Muted = Color(0xFFABB0C0)
     val Accent = Color(0xFF9146FF)
-    val Focus = Color(0xFFA970FF)
-    val Link = Color(0xFFBF94FF)
+    val Focus = Color(0xFFC7AEFF)
+    val Link = Color(0xFFC6A3FF)
+    val Border = Color(0xFF363846)
+    val Live = Color(0xFFFF646F)
     val Error = Color(0xFFFF8585)
+}
+
+object TvShapes {
+    val Control = RoundedCornerShape(8.dp)
+    val Panel = RoundedCornerShape(12.dp)
 }
 
 @Composable
@@ -44,7 +51,8 @@ fun TwitchTheme(content: @Composable () -> Unit) {
 @Composable
 fun TvAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Button(onClick = onClick, modifier = modifier,
-        shape = ButtonDefaults.shape(shape = RoundedCornerShape(6.dp)),
+        shape = ButtonDefaults.shape(shape = TvShapes.Control),
+        scale = ButtonDefaults.scale(focusedScale = 1f),
         colors = ButtonDefaults.colors(
             containerColor = TvColors.Raised,
             contentColor = TvColors.Text,

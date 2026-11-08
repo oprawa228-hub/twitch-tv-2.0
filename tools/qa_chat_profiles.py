@@ -32,6 +32,15 @@ def open_settings():
     d.focus('Настройки'); key('DPAD_CENTER'); wait_text('Предпросмотр')
 
 def row(label, direction='DOWN'):
+    # beta.8 has short profile pages; beta.7's long form remains supported for OTA baselines.
+    current = nodes()
+    if not any(n.get('content-desc', '').startswith(label + ': ') for n in current):
+        link = 'Настроить кинотеатр' if label.startswith('Кинотеатр') else 'Настроить чат поверх видео'
+        links = [n.get('text', '') for n in current]
+        if link not in links and 'Назад к обзору' in links:
+            key('BACK'); current = nodes(); links = [n.get('text', '') for n in current]
+        if link in links:
+            d.focus(link); key('DPAD_CENTER')
     for _ in range(20):
         found = next((n.get('content-desc') for n in nodes()
                       if n.get('content-desc', '').startswith(label + ': ')), None)

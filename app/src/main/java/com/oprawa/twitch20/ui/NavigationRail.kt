@@ -3,7 +3,9 @@ package com.oprawa.twitch20.ui
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -56,6 +58,7 @@ fun NavigationRail(
     onSelect: (String) -> Unit,
     accountName: String,
     modifier: Modifier = Modifier,
+    onFocusOwnership: (Boolean) -> Unit = {},
 ) {
     val entries = listOf(
         RailEntry("streams", "Эфиры"),
@@ -69,7 +72,16 @@ fun NavigationRail(
     )
     val requesters = remember { List(7) { FocusRequester() } }
     Column(modifier.width(84.dp).fillMaxHeight().background(TvColors.Surface)
-        .padding(horizontal = 8.dp, vertical = 18.dp),
+        .onFocusChanged { onFocusOwnership(it.hasFocus) }
+        .onPreviewKeyEvent {
+            if (it.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN &&
+                it.nativeKeyEvent.keyCode in listOf(AndroidKeyEvent.KEYCODE_DPAD_UP,
+                    AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_DPAD_LEFT,
+                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT)) onFocusOwnership(true)
+            false
+        }
+        .focusGroup()
+        .padding(horizontal = 8.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Text("2.0", color = TvColors.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold,
@@ -79,7 +91,7 @@ fun NavigationRail(
             RailItem(entry, entry.key == selected, requesters[index],
                 previous = requesters.getOrNull(index - 1) ?: FocusRequester.Cancel,
                 next = requesters.getOrNull(index + 1) ?: FocusRequester.Cancel,
-                onSelect = { onSelect(entry.key) })
+                onSelect = { onFocusOwnership(false); onSelect(entry.key) })
         }
     }
 }
@@ -89,7 +101,7 @@ private fun RailItem(entry: RailEntry, active: Boolean, requester: FocusRequeste
     previous: FocusRequester, next: FocusRequester, onSelect: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val ink = when { focused -> TvColors.Background; active -> TvColors.Link; else -> TvColors.Text }
-    Column(Modifier.fillMaxWidth().height(50.dp)
+    Column(Modifier.fillMaxWidth().height(54.dp)
         .focusRequester(requester)
         .focusProperties { up = previous; down = next; left = FocusRequester.Cancel }
         .onFocusChanged { focused = it.isFocused }
@@ -108,12 +120,13 @@ private fun RailItem(entry: RailEntry, active: Boolean, requester: FocusRequeste
             onClick { onSelect(); true }
         }
         .focusable()
-        .background(when { focused -> TvColors.Focus; active -> TvColors.Raised; else -> Color.Transparent }, RoundedCornerShape(6.dp))
+        .background(when { focused -> TvColors.Focus; active -> TvColors.Raised; else -> Color.Transparent }, TvShapes.Control)
+        .border(1.dp, if (active && !focused) TvColors.Border else Color.Transparent, TvShapes.Control)
         .padding(vertical = 5.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp)) {
         RailIcon(entry.key, ink)
-        Text(entry.label, color = ink, fontSize = 10.sp, lineHeight = 12.sp,
+        Text(entry.label, color = ink, fontSize = 11.sp, lineHeight = 14.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

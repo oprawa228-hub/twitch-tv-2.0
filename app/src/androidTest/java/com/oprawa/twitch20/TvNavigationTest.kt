@@ -99,7 +99,7 @@ class TvNavigationTest {
             ?: throw AssertionError("Нет фокуса карточки после загрузки")
         val description = original.contentDescription
             ?: throw AssertionError("Для проверки длинного OK нужен настоящий каталог эфиров")
-        assertTrue("Начальный фокус не на карточке эфира", description.contains("●"))
+        assertTrue("Начальный фокус не на карточке эфира", description.contains("В ЭФИРЕ"))
         val channelName = description.substringBefore(", ")
         val originalTop = original.visibleBounds.top
 
@@ -136,17 +136,23 @@ class TvNavigationTest {
         assertTrue(device.hasObject(By.desc("Чат поверх видео: Выключен")))
 
         val oldSize = original.overlayStyle.textSizeSp
+        openEditorPage("Настроить чат поверх видео")
         focusDescription("Чат — размер текста: $oldSize")
         val newSize = if (oldSize == 24) oldSize - 2 else oldSize + 2
         if (oldSize == 24) device.pressDPadLeft() else device.pressDPadRight()
         assertTrue(device.hasObject(By.desc("Чат — размер текста: $newSize")))
-        assertTrue(device.hasObject(By.text("Чат поверх видео · только пример")))
-        assertTrue(device.hasObject(By.text("При сохранении: Без чата")))
+        assertTrue(device.hasObject(By.text("Пример: Чат поверх видео")))
+        assertTrue(device.hasObject(By.text("После сохранения: Без чата")))
+        device.pressBack()
+        assertTrue(device.wait(Until.hasObject(By.desc("Чат поверх видео: Выключен")), 3_000))
         assertTrue(device.hasObject(By.desc("Чат поверх видео: Выключен")))
         assertTrue(device.hasObject(By.desc("Кинотеатр: Выключен")))
+        openEditorPage("Настроить кинотеатр")
         focusDescription("Кинотеатр — размер текста: ${original.theaterStyle.textSizeSp}")
-        assertTrue(device.hasObject(By.text("Кинотеатр · только пример")))
-        assertTrue(device.hasObject(By.text("При сохранении: Без чата")))
+        assertTrue(device.hasObject(By.text("Пример: Кинотеатр")))
+        assertTrue(device.hasObject(By.text("После сохранения: Без чата")))
+        device.pressBack()
+        assertTrue(device.wait(Until.hasObject(By.desc("Чат поверх видео: Выключен")), 3_000))
         device.pressBack()
         assertTrue(device.wait(Until.gone(By.text("Предпросмотр")), 5_000))
         assertEquals("Отмена сохранила режим или чужой профиль", original,
@@ -165,10 +171,14 @@ class TvNavigationTest {
         val theaterSize = saved.theaterStyle.textSizeSp
         val overlayDraft = if (overlaySize == 24) overlaySize - 2 else overlaySize + 2
         val theaterDraft = if (theaterSize == 24) theaterSize - 2 else theaterSize + 2
+        openEditorPage("Настроить чат поверх видео")
         focusDescription("Чат — размер текста: $overlaySize")
         if (overlaySize == 24) device.pressDPadLeft() else device.pressDPadRight()
+        device.pressBack()
+        openEditorPage("Настроить кинотеатр")
         focusDescription("Кинотеатр — размер текста: $theaterSize")
         if (theaterSize == 24) device.pressDPadLeft() else device.pressDPadRight()
+        device.pressBack()
         focusText("Проверить обновления")
         device.pressDPadCenter()
         assertTrue("Не открылся вложенный экран обновлений", device.wait(Until.hasObject(By.text("Twitch 2.0")), 5_000))
@@ -177,8 +187,12 @@ class TvNavigationTest {
         assertTrue(device.wait(Until.hasObject(By.text("Предпросмотр")), 5_000))
         assertEquals("Вложенный экран потерял черновик", changed, chatDescription())
         assertTrue(device.hasObject(By.text("Есть несохранённые изменения")))
+        openEditorPage("Настроить чат поверх видео")
         focusDescription("Чат — размер текста: $overlayDraft")
+        device.pressBack()
+        openEditorPage("Настроить кинотеатр")
         focusDescription("Кинотеатр — размер текста: $theaterDraft")
+        device.pressBack()
         device.pressBack()
         assertTrue(device.wait(Until.gone(By.text("Предпросмотр")), 5_000))
         openSettings()
@@ -188,11 +202,40 @@ class TvNavigationTest {
         device.pressBack()
     }
 
+    @Test fun settingsPagesKeepOneDraftAndBackRestoresTheInitiatingRow() {
+        val saved = SettingsStore(instrumentation.targetContext).state.value
+        openSettings()
+        openEditorPage("Настроить кинотеатр")
+        val before = saved.theaterStyle.textSizeSp
+        val changed = if (before == 24) 22 else before + 2
+        focusDescription("Кинотеатр — размер текста: $before")
+        if (before == 24) device.pressDPadLeft() else device.pressDPadRight()
+        assertTrue(device.hasObject(By.desc("Кинотеатр — размер текста: $changed")))
+        assertEquals("Изменение подстраницы записало черновик", saved, SettingsStore(instrumentation.targetContext).state.value)
+        device.pressBack()
+        assertTrue(device.wait(Until.hasObject(By.descStartsWith("Чат поверх видео: ")), 3_000))
+        awaitStableFocus()
+        val theaterLauncher = device.findObject(By.desc("Настроить кинотеатр"))
+        assertTrue("Back не вернул фокус инициатору",
+            theaterLauncher != null && targetOrAncestorHasFocus(theaterLauncher))
+        openEditorPage("Интерфейс")
+        focusDescription("Часы: ${if (saved.showClock) "Показаны" else "Скрыты"}")
+        device.pressDPadCenter()
+        device.pressBack()
+        openEditorPage("Настроить кинотеатр")
+        assertTrue("Переход на другую страницу потерял черновик профиля",
+            device.wait(Until.hasObject(By.desc("Кинотеатр — размер текста: $changed")), 3_000))
+        device.pressBack()
+        device.pressBack()
+        assertTrue(device.wait(Until.gone(By.text("Предпросмотр")), 5_000))
+        assertEquals("Back из корня должен отменить весь черновик", saved, SettingsStore(instrumentation.targetContext).state.value)
+    }
+
     @Test fun oneBackClosesPlayerSettingsAndKeepsHud() {
         val card = device.findObject(By.focused(true))
             ?: throw AssertionError("Нет фокуса первого прямого эфира")
         assertTrue("Для проверки нужен настоящий прямой эфир",
-            card.contentDescription?.contains("●") == true)
+            card.contentDescription?.contains("В ЭФИРЕ") == true)
         device.pressDPadCenter()
         assertTrue("Прямой эфир не начал воспроизведение",
             device.wait(Until.hasObject(By.text("Пауза")), 45_000))
@@ -201,13 +244,13 @@ class TvNavigationTest {
         focusText("Настройки")
         device.pressDPadCenter()
         assertTrue("Не открылась панель настроек плеера",
-            device.wait(Until.hasObject(By.text("Настройки просмотра")), 5_000))
+            device.wait(Until.hasObject(By.text("Просмотр")), 5_000))
         awaitStableFocus()
 
         device.pressBack() // Exactly one physical Back down/up pair.
 
         assertTrue("Первый Back только переместил фокус и оставил панель",
-            device.wait(Until.gone(By.text("Настройки просмотра")), 3_000))
+            device.wait(Until.gone(By.text("Просмотр")), 3_000))
         assertTrue("Back скрыл HUD вместе с панелью", device.hasObject(By.text("Качество")))
         assertTrue("Back остановил воспроизведение", device.hasObject(By.text("Пауза")))
         assertFalse("Back вышел в каталог", device.hasObject(By.text("Прямые эфиры")))
@@ -221,7 +264,7 @@ class TvNavigationTest {
             awaitCatalogSettled()
             val card = device.findObject(By.focused(true)) ?: throw AssertionError("Потерян фокус")
             val description = card.contentDescription.orEmpty()
-            assertTrue("Прокрутка остановилась на первой странице: $description", description.contains("●"))
+            assertTrue("Прокрутка остановилась на первой странице: $description", description.contains("В ЭФИРЕ"))
             assertTrue("D-pad не переместился на следующую строку", names.add(description.substringBefore(", ")))
             if (it < 13) device.pressDPadDown()
         }
@@ -249,6 +292,13 @@ class TvNavigationTest {
 
     private fun chatDescription(): String = device.findObject(By.descStartsWith("Чат поверх видео: "))?.contentDescription
         ?: throw AssertionError("Не найден параметр чата")
+
+    private fun openEditorPage(label: String) {
+        focusDescription(label)
+        device.pressDPadCenter()
+        assertTrue("Не открылась страница $label", device.wait(Until.gone(By.descStartsWith("Чат поверх видео: ")), 3_000))
+        awaitStableFocus()
+    }
 
     private fun focusText(text: String) = focusTarget("text=$text") { device.findObject(By.text(text)) }
     private fun focusDescription(description: String) = focusTarget(description) { device.findObject(By.desc(description)) }
@@ -310,7 +360,7 @@ class TvNavigationTest {
 
     private fun awaitCatalogSettled() {
         assertTrue("Каталог не завершил загрузку", device.wait(Until.gone(By.text("Обновление…")), 25_000))
-        assertTrue("Начальная загрузка не завершилась", device.wait(Until.gone(By.text("Загружаем каналы…")), 2_000))
+        assertTrue("Начальная загрузка не завершилась", device.wait(Until.gone(By.text("Загружаем…")), 2_000))
         // Both a real data result and an accessible error/retry state are valid navigation prerequisites.
         awaitStableFocus()
     }

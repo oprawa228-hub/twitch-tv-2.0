@@ -1,11 +1,13 @@
 package com.oprawa.twitch20.ui
 
 import android.view.KeyEvent as AndroidKeyEvent
+import android.view.ViewConfiguration
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -43,6 +45,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,11 +66,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val PlayerBackground = Color(0xFF0E0E10)
-private val PlayerPanel = Color(0xFF18181B)
-private val PlayerFocus = Color(0xFFA970FF)
-private val PlayerText = Color(0xFFF7F7F8)
-private val PlayerMuted = Color(0xFFADADB8)
+private val PlayerBackground get() = TvColors.Background
+private val PlayerPanel get() = TvColors.Surface
+private val PlayerFocus get() = TvColors.Focus
+private val PlayerText get() = TvColors.Text
+private val PlayerMuted get() = TvColors.Muted
 
 /** Owns UI layers only; the caller owns and releases [session]. */
 @OptIn(UnstableApi::class)
@@ -92,6 +95,7 @@ fun PlayerScreen(
     var settingsFromChat by remember { mutableStateOf(false) }
     var interaction by remember { mutableLongStateOf(0) }
     var swallowedKey by remember { mutableStateOf<Int?>(null) }
+    var returnFocus by remember { mutableStateOf<String?>(null) }
     val screenFocus = remember { FocusRequester() }
     val pauseFocus = remember { FocusRequester() }
     val qualityFocus = remember { FocusRequester() }
@@ -100,6 +104,12 @@ fun PlayerScreen(
     val chatFocus = remember { FocusRequester() }
     val settingsFocus = remember { FocusRequester() }
     val draftFocus = remember { FocusRequester() }
+    val editor = rememberSettingsEditorState()
+    val editingInactiveProfile = when (editor.page) {
+        SettingsEditorPage.OVERLAY -> draftSettings.chatMode != ChatMode.OVERLAY
+        SettingsEditorPage.THEATER -> draftSettings.chatMode != ChatMode.THEATER
+        else -> false
+    }
     val effectiveSettings = if (chatSettingsOpen) draftSettings else settings
     LaunchedEffect(chatSettingsOpen, effectiveSettings.chatEnabled) {
         onChatPreview(if (chatSettingsOpen) effectiveSettings.chatEnabled else null)
@@ -114,9 +124,10 @@ fun PlayerScreen(
         }
     }
 
-    fun closeQuality() { qualityOpen = false; hudVisible = true; interaction++ }
+    fun closeQuality() { returnFocus = "quality"; qualityOpen = false; hudVisible = true; interaction++ }
     fun openChatSettings(fromChat: Boolean) {
         draftSettings = settings
+        editor.reset()
         settingsFromChat = fromChat
         qualityOpen = false
         chatSettingsOpen = true
@@ -124,6 +135,7 @@ fun PlayerScreen(
     }
     fun closeChatSettings(save: Boolean) {
         if (save) onSettingsChange(draftSettings)
+        returnFocus = if (settingsFromChat) "chat" else "settings"
         chatSettingsOpen = false
         hudVisible = true
         interaction++
@@ -131,7 +143,7 @@ fun PlayerScreen(
 
     fun handleBack() {
         when {
-            chatSettingsOpen -> closeChatSettings(false)
+            chatSettingsOpen -> if (!editor.back()) closeChatSettings(false)
             qualityOpen -> closeQuality()
             hudVisible && state.status != PlaybackStatus.Error -> { hudVisible = false; interaction++ }
             else -> onBack()
@@ -146,12 +158,18 @@ fun PlayerScreen(
         if (chatSettingsOpen) draftFocus.requestFocus()
     }
     LaunchedEffect(hudVisible, panelOpen, state.status == PlaybackStatus.Error) {
+        // One focus owner for panel returns, including Quality opened from the error screen.
+        val returning = if (!panelOpen) returnFocus else null
         when {
             panelOpen -> Unit
+            returning == "quality" && (state.status != PlaybackStatus.Error || state.qualityOptions.isNotEmpty()) -> qualityFocus.requestFocus()
+            returning == "chat" && state.status != PlaybackStatus.Error -> chatFocus.requestFocus()
+            returning == "settings" && state.status != PlaybackStatus.Error -> settingsFocus.requestFocus()
             state.status == PlaybackStatus.Error -> retryFocus.requestFocus()
             hudVisible -> pauseFocus.requestFocus()
             else -> screenFocus.requestFocus()
         }
+        if (!panelOpen) returnFocus = null
     }
     LaunchedEffect(hudVisible, interaction, panelOpen, state.isPlaying) {
         if (hudVisible && !panelOpen && state.isPlaying) {
@@ -166,6 +184,8 @@ fun PlayerScreen(
     val playbackAreaWidth = maxWidth - if (panelOpen) 300.dp else 0.dp
     Row(Modifier.fillMaxSize().background(PlayerBackground)
         .focusRequester(screenFocus)
+        // The fullscreen key target is needed only while controls are hidden.
+        // Otherwise Android's initial focus can land here and strand D-pad navigation.
         .onPreviewKeyEvent { event ->
             val native = event.nativeKeyEvent
             val code = native.keyCode
@@ -188,7 +208,7 @@ fun PlayerScreen(
                 if (native.action == AndroidKeyEvent.ACTION_DOWN) interaction++
                 false
             }
-        }.focusable()) {
+        }.focusable(enabled = !hudVisible && !panelOpen && state.status != PlaybackStatus.Error)) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
             val contentWidth = maxWidth
             val contentHeight = maxHeight
@@ -232,7 +252,7 @@ fun PlayerScreen(
                         .padding(horizontal = 20.dp, vertical = 12.dp))
             }
 
-            if (state.status == PlaybackStatus.Error && !qualityOpen) {
+            if (state.status == PlaybackStatus.Error && !panelOpen) {
                 Column(Modifier.align(Alignment.Center).width(440.dp)
                     .background(PlayerPanel, RoundedCornerShape(8.dp)).padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -265,7 +285,8 @@ fun PlayerScreen(
                     if (subtitle.isNotBlank()) Text(subtitle, color = PlayerMuted, fontSize = 12.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (!state.isLive) VodProgress(state)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         PlayerAction(if (state.showPauseAction) "Пауза" else if (state.isLive) "К эфиру" else "Смотреть",
                             Modifier.focusRequester(pauseFocus)) {
@@ -278,10 +299,15 @@ fun PlayerScreen(
                         PlayerAction("Качество", Modifier.focusRequester(qualityFocus)) { qualityOpen = true }
                         if (chatContent != null) {
                             PlayerAction(if (settings.overlayEnabled) "Чат: вкл" else "Чат: выкл",
-                                Modifier.focusRequester(chatFocus), onLongClick = { openChatSettings(true) }) {
+                                Modifier.focusRequester(chatFocus), active = settings.overlayEnabled,
+                                onLongClick = { pendingRelease ->
+                                    swallowedKey = pendingRelease
+                                    openChatSettings(true)
+                                }) {
                                 onSettingsChange(settings.toggleChat(ChatMode.OVERLAY))
                             }
-                            PlayerAction(if (settings.theaterEnabled) "Кинотеатр: вкл" else "Кинотеатр: выкл") {
+                            PlayerAction(if (settings.theaterEnabled) "Кинотеатр: вкл" else "Кинотеатр: выкл",
+                                active = settings.theaterEnabled) {
                                 onSettingsChange(settings.toggleChat(ChatMode.THEATER))
                             }
                         }
@@ -296,12 +322,13 @@ fun PlayerScreen(
                 .fillMaxHeight().background(PlayerPanel)) { chatContent(effectiveSettings) }
         }
         if (qualityOpen) {
-            Column(Modifier.width(300.dp).fillMaxHeight().background(PlayerPanel).padding(22.dp),
+            Column(Modifier.width(300.dp).fillMaxHeight().background(PlayerPanel)
+                .border(1.dp, TvColors.Border).padding(22.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("Качество видео", color = PlayerText, fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
                 Text(if (state.canAutoSelectQuality) "Авто подбирает качество по скорости сети"
                     else "Выберите качество клипа", color = PlayerMuted, fontSize = 12.sp)
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (state.canAutoSelectQuality) item {
                         PlayerAction(if (state.selectedQualityId == null) "✓ Авто" else "Авто",
                             Modifier.fillMaxWidth().focusRequester(autoFocus)) {
@@ -321,21 +348,19 @@ fun PlayerScreen(
                             fontSize = 14.sp, modifier = Modifier.padding(vertical = 12.dp))
                     }
                 }
-                Spacer(Modifier.weight(1f))
                 PlayerAction("Назад", Modifier.fillMaxWidth()) { closeQuality() }
             }
         } else if (chatSettingsOpen) {
-            Column(Modifier.width(300.dp).fillMaxHeight().background(PlayerPanel).padding(22.dp),
+            Column(Modifier.width(300.dp).fillMaxHeight().background(PlayerPanel)
+                .border(1.dp, TvColors.Border).padding(22.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Настройки просмотра", color = PlayerText, fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
-                Text("Параметры каждого режима сохраняются отдельно. Назад — отменить изменения.",
+                Text("Просмотр", color = PlayerText, fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
+                Text(if (editingInactiveProfile) "Профиль не включён. Изменения будут видны после включения режима."
+                    else if (draftSettings != settings) "Есть несохранённые изменения" else "Настройте просмотр под себя",
                     color = PlayerMuted, fontSize = 12.sp)
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ChatSettingsControls(draftSettings, { draftSettings = it }, draftFocus)
-                    SettingChoice("Часы", if (draftSettings.showClock) "Показаны" else "Скрыты") {
-                        draftSettings = draftSettings.copy(showClock = !draftSettings.showClock)
-                    }
+                    ChatSettingsControls(draftSettings, { draftSettings = it }, draftFocus, state = editor)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PlayerAction("Сохранить", Modifier.weight(1f)) { closeChatSettings(true) }
@@ -346,19 +371,6 @@ fun PlayerScreen(
     }
     }
 
-    // Restore the invoking quality action after the panel disappears.
-    var wasQualityOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(qualityOpen) {
-        if (wasQualityOpen && !qualityOpen && state.status != PlaybackStatus.Error) qualityFocus.requestFocus()
-        wasQualityOpen = qualityOpen
-    }
-    var wasSettingsOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(chatSettingsOpen) {
-        if (wasSettingsOpen && !chatSettingsOpen && state.status != PlaybackStatus.Error) {
-            if (settingsFromChat) chatFocus.requestFocus() else settingsFocus.requestFocus()
-        }
-        wasSettingsOpen = chatSettingsOpen
-    }
 }
 
 @Composable
@@ -376,28 +388,32 @@ private fun VodProgress(state: PlaybackState) {
 
 @Composable
 private fun PlayerAction(label: String, modifier: Modifier = Modifier,
-    onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+    active: Boolean = false, onLongClick: ((Int?) -> Unit)? = null, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     var longTriggered by remember { mutableStateOf(false) }
     Box(modifier.onFocusChanged { focused = it.isFocused; if (!it.isFocused) longTriggered = false }
-        .background(if (focused) PlayerFocus else Color(0xFF26262C), RoundedCornerShape(5.dp))
-        .border(1.dp, if (focused) Color(0xFFD9BCFF) else Color.Transparent, RoundedCornerShape(5.dp))
+        .background(when { focused -> PlayerFocus; active -> TvColors.Accent.copy(alpha = .22f); else -> TvColors.Raised }, TvShapes.Control)
+        .border(1.dp, when { focused -> PlayerFocus; active -> TvColors.Link; else -> TvColors.Border }, TvShapes.Control)
         .onKeyEvent { event ->
             val key = event.nativeKeyEvent
             if (key.keyCode in confirmKeys) {
-                val held = key.eventTime - key.downTime >= 500
+                val held = key.isLongPress || key.eventTime - key.downTime >= ViewConfiguration.getLongPressTimeout()
                 if (key.action == AndroidKeyEvent.ACTION_DOWN && held && !longTriggered) {
                     longTriggered = true
-                    onLongClick?.invoke()
+                    onLongClick?.invoke(key.keyCode)
                 }
                 if (key.action == AndroidKeyEvent.ACTION_UP) {
-                    if (!longTriggered) { if (held) onLongClick?.invoke() else onClick() }
+                    if (!key.isCanceled && !longTriggered) { if (held) onLongClick?.invoke(null) else onClick() }
                     longTriggered = false
                 }
                 true // A held OK never produces a second short action on release.
             } else false
         }
-        .semantics { role = Role.Button; onClick { onClick(); true } }
+        .semantics(mergeDescendants = true) {
+            role = Role.Button
+            selected = active
+            onClick { onClick(); true }
+        }
         .focusable().padding(horizontal = 14.dp, vertical = 11.dp),
         contentAlignment = Alignment.CenterStart) {
         Text(label, color = if (focused) PlayerBackground else PlayerText, fontSize = 14.sp,

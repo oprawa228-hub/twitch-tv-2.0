@@ -27,6 +27,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -92,13 +93,16 @@ fun CatalogScreen(
     limitReached: Boolean = false,
     guestLimited: Boolean = false,
     revision: Long = 0,
+    allowFocusRestore: Boolean = true,
 ) {
+    val mayRestoreFocus by rememberUpdatedState(allowFocusRestore)
     val entries = buildList {
         channels.forEach { channel ->
             add(CatalogEntry("channel:${channel.id}", channel.name, channel.title,
                 channel.category, channel.imageUrl,
-                if (channel.live) "● ${channel.viewers}" else "Не в эфире",
-                { onChannel(channel) }, { onChannelDetails(channel) }))
+                if (channel.live) "${channel.viewers} зрителей" else "Не в эфире",
+                { onChannel(channel) }, { onChannelDetails(channel) },
+                typeLabel = if (channel.live) "В ЭФИРЕ" else ""))
         }
         categories.forEach { category ->
             add(CatalogEntry("category:${category.id}", category.name, "", "Категория",
@@ -134,14 +138,14 @@ fun CatalogScreen(
             // The target must be composed after scrolling before focus can be restored.
             withFrameNanos { }
             withFrameNanos { }
-            requesters[keys[index]]?.requestFocus()
+            if (mayRestoreFocus) requesters[keys[index]]?.requestFocus()
             restored = true
         }
     }
     LaunchedEffect(busy, error, entries.isEmpty()) {
         if (!busy && entries.isEmpty()) {
             withFrameNanos { }
-            emptyRequester.requestFocus()
+            if (mayRestoreFocus) emptyRequester.requestFocus()
         }
     }
 
@@ -171,25 +175,26 @@ fun CatalogScreen(
         if (entries.isEmpty()) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(when { busy -> "Загружаем каналы…"; error != null -> error; else -> "Здесь пока ничего нет" },
+                Text(when { busy -> "Загружаем…"; error != null -> error; else -> "Здесь пока ничего нет" },
                     color = if (error == null) TvColors.Muted else TvColors.Error,
                     fontSize = 18.sp, modifier = Modifier.padding(horizontal = 32.dp), maxLines = 4)
                 if (!busy) {
                     Spacer(Modifier.height(20.dp))
-                    TvAction("Повторить", onRetry, Modifier.focusRequester(emptyRequester))
+                    TvAction(if (error != null) "Повторить" else "Обновить", onRetry, Modifier.focusRequester(emptyRequester))
                 }
             }
         } else {
             BoxWithConstraints(Modifier.weight(1f).padding(bottom = 20.dp)) {
             val posterGrid = entries.all { it.kind == CatalogKind.Category }
             val channelGrid = entries.all { it.kind == CatalogKind.Channel }
-            val columns = if (posterGrid) 5 else 3
+            val largeText = LocalDensity.current.fontScale > 1.25f
+            val columns = if (posterGrid) { if (largeText) 4 else 5 } else if (largeText) 2 else 3
             val thumbnailWidth = (maxWidth - 8.dp - 16.dp * (columns - 1)) / columns - 6.dp
             val naturalImageHeight = thumbnailWidth * if (posterGrid) 4f / 3f else 9f / 16f
             val channelMetadataHeight = (62f * LocalDensity.current.fontScale).dp + 14.dp
             // Two complete channel rows on the main TV canvas; denser search pages may scroll.
             // Fit the whole 16:9 image if this trims a few dp from the available image slot.
-            val imageHeight = if (channelGrid && maxHeight >= 400.dp)
+            val imageHeight = if (channelGrid && !largeText && maxHeight >= 400.dp)
                 minOf(naturalImageHeight, ((maxHeight - 24.dp) / 2 - channelMetadataHeight).coerceAtLeast(104.dp))
                 else naturalImageHeight
             LazyVerticalGrid(columns = GridCells.Fixed(columns), state = state,
@@ -233,7 +238,7 @@ private fun CatalogCard(entry: CatalogEntry, imageHeight: Dp, requester: FocusRe
     onFocused: (String) -> Unit, onFocusState: (Boolean) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     var longActivated by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(6.dp)
+    val shape = TvShapes.Control
     Column(Modifier.fillMaxWidth()
         .focusRequester(requester)
         .onFocusChanged {
@@ -268,7 +273,7 @@ private fun CatalogCard(entry: CatalogEntry, imageHeight: Dp, requester: FocusRe
             if (entry.details != null) onLongClick("Открыть канал") { entry.details.invoke(); true }
         }
         .focusable()
-        .background(if (focused) TvColors.Raised else TvColors.Background, shape)
+        .background(if (focused) TvColors.Raised else TvColors.Surface, shape)
         .border(2.dp, if (focused) TvColors.Focus else TvColors.Background, shape)
         .padding(3.dp)) {
         Box(Modifier.fillMaxWidth().height(imageHeight).clip(RoundedCornerShape(4.dp))
@@ -282,7 +287,8 @@ private fun CatalogCard(entry: CatalogEntry, imageHeight: Dp, requester: FocusRe
                 Modifier.align(Alignment.TopStart).padding(6.dp)
                     .background(TvColors.Background.copy(alpha = .9f), RoundedCornerShape(3.dp))
                     .padding(horizontal = 5.dp, vertical = 2.dp),
-                color = TvColors.Text, fontSize = 11.sp, maxLines = 1)
+                color = if (entry.typeLabel == "В ЭФИРЕ") TvColors.Live else TvColors.Text,
+                fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             if (entry.badge.isNotBlank()) Text(entry.badge,
                 Modifier.align(if (entry.kind == CatalogKind.Video) Alignment.BottomEnd else Alignment.BottomStart).padding(6.dp)
                     .background(TvColors.Background.copy(alpha = .9f), RoundedCornerShape(3.dp))

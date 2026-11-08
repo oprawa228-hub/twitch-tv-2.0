@@ -1,6 +1,5 @@
 package com.oprawa.twitch20.ui
 
-import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +18,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -28,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.oprawa.twitch20.chat.ChatMessage
 import com.oprawa.twitch20.chat.ChatPresentation
+import com.oprawa.twitch20.chat.ChatColor
 import com.oprawa.twitch20.settings.AppSettings
 import com.oprawa.twitch20.settings.ChatPosition
 
@@ -64,8 +67,7 @@ fun ChatPanel(messages: List<ChatMessage>, settings: AppSettings, modifier: Modi
                 verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.Bottom)) {
                 items(shown, key = { it.id }) { message ->
                     val nickColor = remember(message.color) {
-                        runCatching { Color(AndroidColor.parseColor(message.color)) }
-                            .getOrDefault(TvColors.Link)
+                        Color(ChatColor.readable(message.color))
                     }
                     Text(buildAnnotatedString {
                         withStyle(SpanStyle(color = nickColor, fontWeight = FontWeight.Bold)) {
@@ -73,6 +75,7 @@ fun ChatPanel(messages: List<ChatMessage>, settings: AppSettings, modifier: Modi
                         }
                         append(message.text)
                     }, modifier = if (settings.animationsEnabled) Modifier.animateItem() else Modifier,
+                        style = TextStyle(shadow = Shadow(Color.Black, Offset(0f, 1f), 3f)),
                         color = TvColors.Text, fontSize = settings.chatTextSizeSp.sp,
                         lineHeight = (settings.chatTextSizeSp * 1.35f).sp)
                 }

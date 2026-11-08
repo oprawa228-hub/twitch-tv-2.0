@@ -1,0 +1,24 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360">
+  <defs>
+    <linearGradient id="sky" x2="0" y2="1">
+      <stop stop-color="#171026" />
+      <stop offset="1" stop-color="#493066" />
+    </linearGradient>
+    <linearGradient id="ground" x2="0" y2="1">
+      <stop stop-color="#493653" />
+      <stop offset="1" stop-color="#21192e" />
+    </linearGradient>
+    <clipPath id="cam">
+      <path d="M18 246l12-12h153v84l-12 12H18z" />
+    </clipPath>
+    <path id="heart" d="M0 12C-4 8-15 1-15-6a8 8 0 0 1 15-3 8 8 0 0 1 15 3C15 1 4 8 0 12z" />
+  </defs>
+  <g>
+    <path fill="#b4b98a" d="M374 207l85-23 8 5-2 8-88 25z" />
+    <path fill="#696f50" d="M455 184l12-3 5 15-12 3z" />
+    <path fill="#879364" d="M291 224l16-24 33-12 37 6 17 28-20 9h-75z" />
+    <path fill="#b4b98a" d="M307 200l33-12 37 6 6 10-45 3z" />
+    <path fill="#586348" d="M323 190l6-7h25l6 7z" />
+  </g>
+</svg>

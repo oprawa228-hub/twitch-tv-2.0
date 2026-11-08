@@ -1,5 +1,7 @@
 package com.oprawa.twitch20
 
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.WindowManager
@@ -64,6 +66,7 @@ private data class Watching(val id: String, val kind: String, val login: String,
 
 @Composable
 private fun TwitchApp() {
+    var railOwnsFocus by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val repository = remember { TwitchRepository() }
     val settingsStore = remember { SettingsStore(context) }
@@ -80,6 +83,9 @@ private fun TwitchApp() {
     var settingsOpen by remember { mutableStateOf(false) }
     var aboutOpen by remember { mutableStateOf(false) }
     var exitOpen by remember { mutableStateOf(false) }
+    // Android may place initial focus in the first rail item before data arrives.
+    // Only a deliberate remote move should prevent the catalog's initial restoration.
+    var userNavigated by remember(route.key, watching, settingsOpen, aboutOpen, exitOpen) { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     // Identity is part of the cache boundary: logout cannot leave a personal catalog behind.
     val catalogCache = remember(authState.loggedIn, authState.displayName) { linkedMapOf<String, CatalogPager<CatalogItem>>() }
@@ -172,10 +178,17 @@ private fun TwitchApp() {
             key(active.id,active.kind) {
                 Viewing(active,repository,settingsStore,onBack={watching=null},onSettings={settingsOpen=true})
             }
-        } else Row(Modifier.fillMaxSize()) {
+        } else Row(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+            if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
+                event.nativeKeyEvent.keyCode in listOf(android.view.KeyEvent.KEYCODE_DPAD_UP,
+                    android.view.KeyEvent.KEYCODE_DPAD_DOWN, android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT)) userNavigated = true
+            false
+        }) {
             NavigationRail(selected=if(route.kind=="category")"categories" else route.kind,
+                onFocusOwnership={railOwnsFocus=it},
                 accountName=if(authState.loggedIn)authState.displayName else "",
-                onSelect={section -> when(section) {
+                onSelect={section -> userNavigated=false; when(section) {
                     "settings" -> settingsOpen=true
                     "about" -> aboutOpen=true
                     else -> navigate(Route(section,title=when(section){"streams"->"Прямые эфиры";"search"->"Поиск";"categories"->"Категории";"following"->"Отслеживаемые";else->"Аккаунт"}),false)
@@ -209,6 +222,7 @@ private fun TwitchApp() {
                             onRefresh={pageJob?.cancel();pager.reset();loadMore()},
                             guestLimited=!authState.loggedIn && route.kind in setOf("streams","category","categories","channel","clips"),
                             revision=page.revision,
+                            allowFocusRestore=!railOwnsFocus || !userNavigated,
                             onChannelDetails={navigate(Route("channel",it.login,it.name))})
                     } } }
                 }
