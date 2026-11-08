@@ -45,8 +45,16 @@ Refero — основной метод работы с ориентиром и �
 - Exact release: настоящий live→пауза→theater→overlay, открытие неактивного профиля кинотеатра без переключения режима, вложенный/корневой Back, качество→Back, возврат в каталог — PASS (`beta8-delivery-player.log`, `beta8-player-design-result.json`). Исходный режим OVERLAY восстановлен.
 - Exact release: `evidence/android/beta8-final-motion.mp4`, нативные1280×720, ~26с. Проверены выстрел/сердечки/реакция и редкий жест; после визуального исправления сердца выходят в свободную область. `beta8-final-motion-qa.log`: пары PNG при system motion0, app motionOFF и после Home→возврат→motion0 совпали побайтно. Черновик отменён; тест не сохранил выключение анимации.
 - С записью:962 отрисованных кадра, median9мс,p95=23мс,3 Frame deadline missed,375/38,98% Janky по gfxinfo; это API30/x86 SwiftShader одновременно с screenrecord, не характеристика физическогоTV и не доказательство60FPS. В фоне после сброса счётчика за3с —0 frames. Показатели старых APK не переносятся на этот кандидат.
+- Контроль без screenrecord: за20с733 кадра,0 Janky,0 deadline missed,median6мс,p95=8мс (`beta8-motion-no-recorder-gfx.txt`). Это объясняет различие с записью на том же эмуляторе; средняя частота около36,7 кадра/с, поэтому даже этот успешный короткий замер не объявляется60FPS или гарантией для слабогоTV.
 
-Доставка и OTA записываются после публикации. До заполнения доставки публичным выпуском остаётся beta.7.
+## Доставка
+
+Опубликован [v0.1.0-beta.8](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/tag/v0.1.0-beta.8), [подписанный APK](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.8/Twitch20-0.1.0-beta.8.apk). Source/tag commit `dcc2087591b8e88d09d11a5ca5344c81daf0fbe6`; test feed commit `8707b5e23316d0be83bc80fd366e2cff80dd6e10`. Публичные APK/update.json/SHA256SUMS скачаны и побайтно совпали со staged файлами (`beta8-public-files.json`). Нормальный raw URL test.json возвращает code10 (`beta8-public-feed.json`).
+
+**Настоящий OTA9→10 PASS** на `Twitch20Release/emulator-5562`: beta.7 → обычная проверка → загрузка → проверенный файл → Android INSTALL → OPEN. Это не adb install. Установленный base.apk совпадает с публичным SHA `f1338899b612b3114d1b0ba2d6fafd51d3c07275c7e2cc38a8651d75b5aa5ec3`. Сохранились THEATER, оба профиля16sp/65%, TOP_RIGHT, часы и анимации (`beta8-ota-settings-result.json`). VOD Caedrel открылся с3:25:39 (`beta8-ota-vod-start.xml`), после23с воспроизведения и паузы —3:26:02 (`beta8-ota-history-result.json`).
+
+Primary `Twitch20Test/emulator-5560` также на точном release10, аккаунт oprawa сохранён; это ручная установка поверх старой версии, отдельно от OTA на secondary. Оба AVD возвращены в каталог. Временные font/display/motion параметры восстановлены; signing key и старый проект не менялись. Все raw PNG/XML/MP4/log остаются локально в evidence, не являются публичными ссылками репозитория.
+
 
 ## Границы
 

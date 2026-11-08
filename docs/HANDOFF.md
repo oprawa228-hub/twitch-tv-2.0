@@ -1,6 +1,16 @@
 # Передача результата Twitch 2.0
 
-## Актуальная доставка — beta.7/code9
+## Актуальная доставка — beta.8/code10
+
+[Подписанный APK](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.8/Twitch20-0.1.0-beta.8.apk), 2 772 750 байт, SHA-256 `f1338899b612b3114d1b0ba2d6fafd51d3c07275c7e2cc38a8651d75b5aa5ec3`, прежний сертификат. Source/tag `dcc2087591b8e88d09d11a5ca5344c81daf0fbe6`, test feed `8707b5e23316d0be83bc80fd366e2cff80dd6e10`. Public/staged/installed на двух AVD совпадают. [Дизайн, обоснование и проверки](DESIGN_BETA8.md), [постановка движения](MOTION_BETA8.md).
+
+Общий стиль трёх экранов, короткие страницы и один черновик, явное различие примера/активного режима, раздельные профили, нативные слои танка/сердечек/персонажа. Исправлены перехват фокуса каталогом, возврат после ошибки плеера, системный long-OK и утечка отпускания в первый переключатель. 143 JVM PASS;24 различных Android-сценария по отдельным прогонам, последний11/11 PASS за133,524с. Exact signed release прошёл paused-live маршрут и остановку анимации; native26с MP4: `evidence/android/beta8-final-motion.mp4`. Без записи за20с:0 jank/0 deadline missed,p95=8мс на SwiftShader; это не60FPS/physicalTV benchmark.
+
+Настоящий OTA9→10 наsecondary:16/65% оба профиля, THEATER, TOP_RIGHT, clock/animations сохранены; VOD3:25:39→3:26:02 после воспроизведения/паузы. Primary oprawa сохранён. Временные системные параметры восстановлены, оба устройства наrelease10 в каталоге; активных проверок/сборок нет.
+
+Открытые границы: физический ARM TV, настоящий4K (эмулятор ограничил размер1080p), полный длительный performance matrix. Старый software decoder4003 не объявлен исправленным. Следующая содержательная проверка — оценка новой сборки на реальномTV; не повторять OAuth и не выдавать прошлые длительные soak за beta.8.
+
+## Предыдущая доставка — beta.7/code9
 
 [Подписанный APK](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.7/Twitch20-0.1.0-beta.7.apk), 2 750 382 байта, SHA-256 `b7dd452c6de8ab2e015e894fb54dc45b6bb2ac28e4588579e025de005f77ff37`, прежний сертификат. Source/tag `1fcef8e5fc692653b0a81ffc9ac9e42a0a2a6dc3`; тестовый feed code9, commit `b74a049d65877c15453b971e563ee9e4e385faca`. Public/staged/installed совпали. [Отчёт](DESIGN_BETA7.md).
 
