@@ -1,6 +1,17 @@
 # Передача результата Twitch 2.0
 
-## Актуальная доставка — beta.8/code10
+## Актуальная доставка — beta.9/code11
+
+[Подписанный APK](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.9/Twitch20-0.1.0-beta.9.apk),2 772 743байта,SHA-256 `ded0ab870f9adcb8871afc46731a93292d319a6bc75ad39674868f00c18addce`, прежний сертификат. Source/tag `27dc2a9435a38db43a777286b63dbb162d125ebe`, test feed `47a5fa6d386af37d5a0928937c941bb441b17ab4`.
+
+Иконки вместо текстового HUD; полноценный seek-draft с удержанием/OK/Back и сохранением pause/play; именованные пресеты с временной примеркой; выбранное качество при открытии; отдельный long-OK профилей; измеренные границы чата и фиксированные часы. [Решения/проверки/таблица сценариев](DESIGN_BETA9.md), [полный аудит оставшихся пунктов](UI_UX_CHECKLIST_AUDIT.md), [чеклист пользователя](USER_UI_UX_CHECKLIST.md).
+
+155 JVM PASS;12 navigation/error-focus и7 seek Android PASS раздельными прогонами; точный release прошёл реальные Twitch live/VOD, выбор160p/возврат фокуса, шрифт/отмену,720p/1080p/130%.4K ограничен эмулятором, физический TV не проверялся.14с нативной примерки шрифта: `evidence/android/beta9-font-preview.mp4`. Изображения `beta9-vod-seek-draft.png`, `beta9-font-preview.png`, `beta9-live-theater.png` — настоящий интерфейс; сценка в настройках помечена примером.
+
+Второй AVD Twitch20Release получил обычное OTA10→11, установленный хеш совпал с опубликованным. THEATER, оба прежних размера («Свой размер»), фон65%, TOP_RIGHT, часы и анимации сохранены. VOD Caedrel возобновился с3:26:05. Primary Twitch20Test сохраняет аккаунт oprawa. Следующий код12, имя beta.10; опубликованный beta.9 не перезаписывать.
+
+
+## Предыдущая доставка — beta.8/code10
 
 [Подписанный APK](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.8/Twitch20-0.1.0-beta.8.apk), 2 772 750 байт, SHA-256 `f1338899b612b3114d1b0ba2d6fafd51d3c07275c7e2cc38a8651d75b5aa5ec3`, прежний сертификат. Source/tag `dcc2087591b8e88d09d11a5ca5344c81daf0fbe6`, test feed `8707b5e23316d0be83bc80fd366e2cff80dd6e10`. Public/staged/installed на двух AVD совпадают. [Дизайн, обоснование и проверки](DESIGN_BETA8.md), [постановка движения](MOTION_BETA8.md).
 
