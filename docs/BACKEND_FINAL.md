@@ -2,16 +2,16 @@
 
 Срез: 2026-11-08. Объём определяется [TASK.txt](TASK.txt), единый план — [PLAN.md](PLAN.md). Дизайн отложен по просьбе пользователя. Собственный сервер не требуется.
 
-**Текущий статус:** beta.5/code7 опубликован; OTA6→7 сохранил настройки и VOD1:23. После обновления дополнительная проверка обнаружила crash при повторном запуске Activity и открытии второго плеера (`Session ID must be unique`). Исправление готовится отдельной beta.6/code8. Ниже результаты beta.5 отделены от предварительного кандидата; внутренняя стабилизация ещё не объявлена завершённой.
+**Исторический отчёт beta.5/code7. Актуальный выпуск — [beta.6/code8](BACKEND_BETA6.md).** OTA6→7 сохранил настройки и VOD1:23. Последующая проверка обнаружила crash при повторном запуске Activity (`Session ID must be unique`); он исправлен и доставлен в beta.6. Ниже результаты beta.5 отделены от предварительного кандидата и последующего выпуска.
 
-## Текущий кандидат
+## Опубликованный APK beta.5
 
 - `com.oprawa.twitch20`, `0.1.0-beta.5`, versionCode **7**, minSdk23, signed/minified release, **2 733 968 байт**.
 - SHA-256: `cb26d9eb713e246725ca70d9e0ebd050a0a3fb30a948a69ae80e45434bd21f10`.
 - Сертификат SHA-256: `f81f51fd47d318aaf79f1fe3c81159fe6eca405f881f4f0b19d097d1c4b006f7`, идентичность прежних выпусков сохранена.
 - После последних изменений: **121 JVM PASS**, полный **8 Android PASS / 84.861 с**. Логи `evidence/beta5-candidate4-build.log`, `beta5-candidate4-instrumentation.log`; XML JVM в `app/build/test-results/testDebugUnitTest/`.
 - Android suite состоит из шести сценариев D-pad и двух проверок настоящего Media3 на сохранение play/pause intent. Последние используют локальный asset URI только для переходов состояния и **не доказывают декодирование или сеть**.
-- Подписанный release установлен поверх прежних данных на `Twitch20Test`/5560; аккаунт сохранился. Это ручная install compatibility, пока не OTA.
+- Подписанный release установлен поверх прежних данных на `Twitch20Test`/5560; аккаунт сохранился. Это ручная install compatibility. Отдельный настоящий OTA6→7 на5562 указан ниже.
 
 Raw XML/PNG/logs в `evidence/` исключены из Git целиком. В публичном отчёте нет токенов, signed media URL или текста чата.
 
@@ -26,8 +26,8 @@ Raw XML/PNG/logs в `evidence/` исключены из Git целиком. В �
 | Восстановление | В ошибке доступно «Качество», если варианты уже известны; выбор подготавливает источник заново с live edge/VOD position и прежним pause intent. Retry заново получает источник и сохраняет ручное качество | Независимое ревью интеграции и focus/back. Автоматических бесконечных попыток или скрытого снижения качества нет. Реальные network/error/quality проверки текущего APK ниже. |
 | Чат | Login/user ID отдельно от display name, корректный CLEARCHAT, USERNOTICE и terminal NOTICE, дедупликация/лимиты, честные quiet/connecting/error статусы | 13 JVM chat regressions. Соединение только для foreground live и включённого/предпросматриваемого чата; история150 сообщений, UI100. Полный WebSocket lifecycle не подменяется parser-тестами. |
 | Настройки | Overlay/theater, размер/фон/положение/часы/анимации; draft preview, Save/Cancel и возврат | Текущие Android D-pad tests; реальные draft on/off и чат проверены на предварительном кандидате. Визуальное оформление не объявляется окончательным. |
-| Хранение | Settings/history в SharedPreferences; история100 позиций без URL. OAuth в AtomicFile+Android Keystore AES-GCM; backup отключён | Review и JVM history/auth policies. Сквозного AndroidKeyStore rotate/revoke теста нет. Settings/history через OTA текущего APK пока ожидают проверки. |
-| Обновления | Отдельный GitHub-канал; SHA/package/version/API/certificate, cancel/retry, private FileProvider и системный installer | JVM update policy; предыдущая цепочка OTA2→4→5→6. Текущий переход6→7, public/feed/installed hashes отмечаются после фактического завершения. |
+| Хранение | Settings/history в SharedPreferences; история100 позиций без URL. OAuth в AtomicFile+Android Keystore AES-GCM; backup отключён | Review и JVM history/auth policies. Сквозного AndroidKeyStore rotate/revoke теста нет. Settings/history подтверждены через OTA6→7; следующий7→8 отдельно описан вBACKEND_BETA6. |
+| Обновления | Отдельный GitHub-канал; SHA/package/version/API/certificate, cancel/retry, private FileProvider и системный installer | JVM update policy; предыдущая цепочка OTA2→4→5→6. Переход6→7 завершён; public/feed/installed hashes совпали, settings/VOD1:23 сохранены. |
 | Метрики | Request/resolve/prepare→first frame; rebuffer отдельно от startup/seek/foreground/recovery/quality; числовые decoder counters | JVM fake-clock tests, реальные предыдущие и текущие выборки в [PERFORMANCE.md](PERFORMANCE.md). Это не физический input-to-photon или аппаратный TV benchmark. |
 
 ## Native-проверка текущего APK
@@ -36,8 +36,8 @@ Raw XML/PNG/logs в `evidence/` исключены из Git целиком. В �
 |---|---|
 | Реальная ошибка сети → выбор360p → видео; fresh-source Retry сохраняет360p | **PASS** на точном release; `beta5-final-quality-recovery.log`, XML/PNG `beta5-final-error-quality360-recovered`, `beta5-final-retry360-selected`. После ON_STOP чат очистился, после подключения снова видны настоящие сообщения. |
 | 20+ открытий/возвратов с памятью | **PASS:22 разных канала,22 первых старта/возврата**; выбор карточки сохранён. Request→frame median3068ms/p953962ms/max4307ms; PSS64 056…92 699KB. `beta5-final-cycles/`, `beta5-final-cycles-summary.json`. |
-| Длительный480p live с чатом/панелями | KSPKSP: **FAIL**, runtime4003 через44.327s после выбора480p,1317 rendered/0 dropped/54 skipped. `beta5-final-soak480/`, `beta5-final-soak480-codec.log`. Без периодическогоUiAutomator. Начат отдельный сравнительный прогон другого канала AliBumayeTV/480p; итог ожидается. |
-| MP4 quality/position/completion на текущем кандидате | Ожидает целевого повторения |
+| Длительный480p live с чатом/панелями | KSPKSP: **FAIL**, runtime4003 через44.327s после выбора480p,1317 rendered/0 dropped/54 skipped. Отдельный AliBumayeTV480p: **PASS30мин11.490с**,54306rendered/31dropped,1rebuffer450ms,0errors, возврат к карточке. Chat/start-mid-end2/5/5 rows; drafttext/theater Cancel без перезапуска. Подробности и общийhost/реклама/границы в [PERFORMANCE.md](PERFORMANCE.md). |
+| MP4 quality/position/completion | Целевое повторение выполнено на следующем exactrelease beta.6/459ff94…, а не приписано beta.5; см. [отчёт](BACKEND_BETA6.md). |
 | Публикация, feed и OTA6→7 с settings/VOD history | **PASS**: три public asset побайтно совпали; feed7; installed cb26…/code7 через Android installer. Theatre/16/65%/clock/animations и VOD1:23 сохранились, запись играла до1:42. Последующий relaunch crash исправляется в [beta.6](BACKEND_BETA6.md). |
 
 ## Предварительный кандидат и найденные ограничения

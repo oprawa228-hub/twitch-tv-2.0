@@ -1,6 +1,8 @@
 # Проверки Twitch 2.0
 
-Кандидат **beta.5 / code7**: [121 JVM PASS, 8 Android PASS и native-проверки; отдельные ошибки и pending доставка](BACKEND_FINAL.md).
+Доставлена **beta.6 / code8**: [121 JVM PASS, 9 Android PASS на двух эмуляторах, native release и OTA7→8](BACKEND_BETA6.md). Точный APK459ff94…; история2:59 и настройки сохранились. Конфликт медиасессий исправлен; software decoder4003 отдельно воспроизведён минимальным Media3 comparator.
+
+Предыдущая **beta.5 / code7**: [121 JVM PASS, 8 Android PASS,22 открытия, отдельный30minPASS и OTA6→7](BACKEND_FINAL.md). Успешный live-прогон и три неудачных прогона другого канала разделены в [PERFORMANCE.md](PERFORMANCE.md).
 
 Предыдущий доставленный этап **beta.4 / code6**: [отдельный отчёт с 72 JVM-тестами, шестью Android-сценариями и внешними D-pad проверками](BACKEND_BETA4.md). Ниже сохранены результаты предыдущих выпусков; ограничения первой страницы относятся к beta.3. В beta.4 после входа используется Helix-пагинация.
 

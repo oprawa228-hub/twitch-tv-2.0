@@ -1,8 +1,16 @@
 # Передача результата Twitch 2.0
 
-## Текущий этап beta.5
+## Актуальная доставка — beta.6/code8
 
-Текущий signed/minified candidate code7: SHA-256 `cb26d9eb713e246725ca70d9e0ebd050a0a3fb30a948a69ae80e45434bd21f10`, 2 733 968 байт. **121 JVM PASS, 8 Android PASS/84.861с** после последних исправлений. Реальный network error→Quality360→video и fresh-source Retry с сохранением360 подтверждены на точном release. Идут новые циклы/длительный480p и последующая доставка; beta.4 пока остаётся опубликованной версией.
+**Функциональная доработка доставлена; дизайн остаётся следующим отдельным этапом.** [APK](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.6/Twitch20-0.1.0-beta.6.apk),2 733 993байта,SHA-256`459ff94be9cb8d356620c3da0e0020d17ca66c2b519c80c22c18b5e5c668ea6c`. Source/tag`d7180982a719bda440b745bbca1d917bfc6329e7`. Тестовыйfeedcode8, public/staged/installed совпали. Последние121JVM PASS и9Android PASS на двухAVD (8guest/59.072с +1auth/22.29с).
+
+Исправлены auth/chat/catalog/playback recovery и обнаруженный после OTA конфликт MediaSession при повторном запуске Activity. Exactrelease8: paused/playing VOD→Home→explicit launch сохраняют тот жеActivity/intent; clip1080→720 сохраняетpaused0:04, ended0:29→reopen0:00. **Настоящий OTA7→8 сохранил theatre/16/65%/clock/animations и VOD2:59**, installerOPEN работает; послеOTA оба relaunch-сценария повторноPASS. Primary5560 вручную установлен exactrelease8, oprawa сохранён; secondary5562 — exactrelease8 послеOTA. Активных сборок/soak/инструментации нет.
+
+Главное ограничение: KSPKSP decoder4003 повторился и в минимальном Media3+SurfaceView, без PlaybackSession/MediaSession/ContentFrame/чата. Причина сочетания потока/Media3/softwareAVC не установлена; физическийTV не проверен. Другой канал на beta.5/cb26… прошёл30мин11.490с/0errors/1rebuffer450ms и22 отдельных открытия. Не переносить эти длительные измерения на beta.6 и не объявлять decoder исправленным. [Полный текущий отчёт](BACKEND_BETA6.md), [производительность](PERFORMANCE.md), [единый план](PLAN.md).
+
+## Предыдущая доставка beta.5
+
+Signed/minified code7: SHA-256 `cb26d9eb713e246725ca70d9e0ebd050a0a3fb30a948a69ae80e45434bd21f10`, 2 733 968 байт. **121 JVM PASS, 8 Android PASS/84.861с**. Реальный network error→Quality360→video и fresh-source Retry с сохранением360 подтверждены;22 первыхстарта/возврата и отдельный30minPASS. OTA6→7 сохранилsettings/VOD1:23. Последующий launch ownership crash исправлен в beta.6.
 
 Предварительный candidate68a655… дважды получил software decoder4003 на720p60 (319.161s и1425.246s). Его23 открытия/возврата и другие native проверки не выдаются за результаты текущего APK. В текущем добавлены выбор качества из ошибки, сохранение ручного выбора при Retry и play/pause intent при фоновом завершении запроса. Системный decoder не объявляется исправленным. Полная матрица: [BACKEND_FINAL.md](BACKEND_FINAL.md). Дизайн отложен по просьбе пользователя.
 

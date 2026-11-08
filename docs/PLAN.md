@@ -1,8 +1,8 @@
 # План Twitch 2.0
 
-## Текущий этап — завершение внутренней части перед дизайном
+## Завершённый функциональный этап — beta.6; далее дизайн
 
-Запрос пользователя: закрыть внутреннюю часть первой полноценной версии; визуальную переработку выполнить затем. Базовые требования — TASK.txt§4,6,7,11,12; текущая база beta.4/code6. Технические решения/агенты/публикация делегированы. Используем существующие Kotlin/Compose/Media3/OkHttp, новый сервер не нужен. Сохраняем package/certificate, данные аккаунта и отдельный канал GitHub. Один план в этом файле; root управляет Gradle/эмуляторами/подписью/выпуском.
+Запрос пользователя: закрыть внутреннюю часть первой полноценной версии; визуальную переработку выполнить затем. Базовые требования — TASK.txt§4,6,7,11,12; этап начат с beta.4/code6 и доставлен в beta.6/code8. Технические решения/агенты/публикация делегированы. Kotlin/Compose/Media3/OkHttp, новый сервер не нужен. Package/certificate/данные и отдельный GitHub-канал сохранены. Один план в этом файле; root управляет Gradle/эмуляторами/подписью/выпуском. Итог и явные ограничения — [BACKEND_BETA6.md](BACKEND_BETA6.md); дизайн не завершён.
 
 Подход: исправить подтверждённые дефекты в существующих владельцах состояния, без переписывания архитектуры. Альтернативы — расширение optional-функций и смена стека — не закрывают найденные lifecycle/network дефекты. Достаточность этапа: все обязательные функции доступны, regression suite проходит, точный signed APK выдерживает расширенные реальные сценарии; внешние ограничения и недоступная physical ARM проверка перечислены явно.
 
@@ -14,16 +14,16 @@
 - [x] Каталог (`HelixCatalogRepository.kt`, `MainActivity.kt`, `CatalogScreen.kt`, data tests; root): signed-in header не зависит от guest GQL; явное обновление первой страницы до exhaustion. Проверить обновление и возврат, отмена/ошибки сохраняют понятный путь.
 - [x] Метрики (`PlaybackMetrics.kt` и session callbacks; pagination_review; request timestamp — root): numeric-only resolver/request→first frame, rebuffer count/duration отдельно от startup/seek/Home. Fake-clock regression + никаких URL/токенов/текста чата в логах.
 - [x] Интеграция: meaningful RED→GREEN, полный JVM + Android D-pad suite; независимый итоговый review diff. Дополнительные сценарии auth expiry/401/refresh/cancel/logout проверять через фикстуры отдельно от реального аккаунта.
-- [ ] Точный release APK: 20+ live open/return с памятью после закрытия, длительный live минимум30мин с чатом/панелями, сеть→retry, pause/foreground, VOD seek/resume/completion, clip quality, settings persistence. Измерять actual durations/decoder counters, не путать emulator иphysicalTV.
-- [ ] Выпуск beta.5/code7 с постоянной подписью, публичные hashes/канал, реальный OTA6→7 с настройками и VOD history. README/HANDOFF/TEST_RESULTS/SCOPE/отчёт покрытия обновить по фактическим результатам. Дизайн не объявлять завершённым.
+- [x] Native matrix: exactbeta.5/cb26…22open/return,30мин11.490с другогоlive с чатом/панелями, network error→Quality/Retry; exactbeta.6/459ff94…paused/playingVOD→Home/relaunch, clipqualitypause/position/ended→reopen,settings/history. Измерения разных APK не объединены; триKSPKSP failures и отдельныйminimal comparatorFAIL сохранены в отчёте.
+- [x] Выпуск beta.5/code7 и beta.6/code8 с постоянной подписью; public/feed/installed hashes; реальные OTA6→7 и7→8 с settings/VODhistory. README/HANDOFF/TEST_RESULTS/SCOPE/отчёты обновлены. Дизайн не объявлен завершённым.
 
 ### Дополнение по фактическому soak
 
-720p60 на software AVC эмулятора дважды прервалось runtime4003:319.161s и1425.246s. Второй случай повторился без периодическогоUIAutomation, поэтому нельзя списывать decoderfailure на инструмент. Непрерывный30minPASS пока отсутствует. Новый объём стабилизации:
+720p60 на software AVC эмулятора дважды прервалось runtime4003:319.161s и1425.246s. Второй случай повторился без периодическогоUIAutomation. В дальнейшем KSPKSP480p такжеFAIL44.327s; минимальныйMedia3+SurfaceView воспроизвёл4003 за162.089s. Другой каналAliBumayeTV480p в beta.5PASS30мин11.490с. Результаты разделены вPERFORMANCE; причинаdecoderfailure не объявлена установленной.
 
 - [x] Session/policy/tests (pagination_review): ручной выбор качества изError запускает восстановление и сохраняет pause/position; freshresolverRetry SAMEmedia сохраняет семантический выбор без устаревших trackindexes; newmedia/Auto/unavailablequality имеют явное поведение. RED→GREEN.
 - [x] RootUI: доступное «Качество» на экране ошибки, управляемое D-pad; выбор480p после реальной сетевой ошибки и Retry с сохранением выбора. Native pause-buffering helper исправлен: live «К эфиру», а не VOD «Смотреть»; прежний timingassert не считается PASS. Current121JVM/8Android84.861с; настоящийerror→Quality360→video и Retry→360PASS. Дополнительно actualMedia3 RED2/1→GREEN закрывает background source completion intent.
-- [ ] Новый exact candidate/code7 (старыйещёнезагруженвdist/Release), полный JVM, targetednative и длительный480p прогон. Старые720p failures остаются известным ограничением softwaredecoder; не объявлять их исправленными сменой качества.
+- [x] Новый exactcode7/cb26… опубликован после121JVM/8Android иtargetednative; затемповторныйlaunchcrash исправлен отдельнымcode8. Длительный480pPASS другого канала не скрывает480p/720pFAIL KSPKSP.
 
 Review focus: logout во время refresh; отмена после сохранения DCF; paused buffering→Home; завершение короткого clip; скрытый/переподключающийся чат; смена MP4 источника без сброса позиции; перезагрузка каталога с удалённой выбранной карточкой; отказ внешнего GQL при здоровом Helix.
 
@@ -31,8 +31,15 @@ Review focus: logout во время refresh; отмена после сохра
 
 Beta.5/code7 опубликован неизменяемым APK cb26…; OTA6→7 и settings/VOD1:23 retention подтверждены. После установки найден новый crash: paused VOD→Home→explicit MainActivity start создаёт второй Activity; открытие нового видео получает `Session ID must be unique. ID=`. `evidence/beta5-secondary-lifecycle.log`/17:46:39. Это дефект владения приложением, отдельно от decoder4003.
 
-- [x] RED Android MediaSessionOwnershipTest1/1; unique MediaSession ID + singleTask. GREEN121JVM и8Android/59.072с наguest, отдельныйauth scenario ожидаетprimary. Exactrelease8/459ff94… native paused иplaying VOD→Home→explicitlaunch сохраняютActivity/intent/position. Clipqualitypause0:04 иended0:29→reopen0:00 проверены отдельно.
-- [ ] Beta.6/code8: полный JVM/Android, targeted native Home/relaunch playing/paused, clip quality/completion; отдельная подпись/hash и OTA7→8. Не подменять результаты длительного beta.5 прогона результатами beta.6; decoder path остаётся прежним.
+- [x] RED Android MediaSessionOwnershipTest1/1; unique MediaSession ID + singleTask. GREEN121JVM и8Android/59.072с наguest плюс1auth/22.29с наprimary — всего9Android. Exactrelease8/459ff94… native paused иplaying VOD→Home→explicitlaunch сохраняютActivity/intent/position. Clipqualitypause0:04 иended0:29→reopen0:00 проверены отдельно.
+- [x] Beta.6/code8:121JVM/9Android надвухAVD, exactrelease Home/relaunch playing/paused,clipquality/completion; permanentcertificate/hash459ff94… иOTA7→8сsettings/VOD2:59. ПослеOTA обаrelaunchсценария повторноPASS. Длительныйbeta.5 результат оставленотдельно; decoderpath неизменён.
+
+### Следующий отдельный этап
+
+- [ ] Визуальная переработка каталогов/плеера/настроек по исходным ориентирам и пользовательской оценке; функциональный объём не расширять молча.
+- [ ] Проверка на физическом ARM Android TV/аппаратном decoder, включая проблемный канал; сейчас устройство недоступно. Не переносить software-emulator результаты на ТВ.
+
+Реальные expiry/revoke аккаунта и закрытый контент не проверены; политики покрыты фикстурами. Новый личный вход пользователь отклонил. Эти границы и необязательные расширения перечислены вSCOPE/BACKEND_BETA6.
 
 ## Завершённый этап — внутренняя часть beta.4
 

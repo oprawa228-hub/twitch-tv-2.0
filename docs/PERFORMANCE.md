@@ -16,7 +16,13 @@ Exact signed/minified code7: SHA-256 `cb26d9eb713e246725ca70d9e0ebd050a0a3fb30a9
 
 Длительный480p прогон KSPKSP на текущем APK **FAIL**: renderer44.327s,1317 rendered/0 dropped/54 skipped, runtime4003. `SoftAVCDec Fatal Error:0xffffffff`/ACodec0x80001019 предшествует Java codec exception. PSS105518→99151KB. Источники `evidence/beta5-final-soak480/` и `beta5-final-soak480-codec.log`. Это не30minPASS и не исправление двух предыдущих720p60 failures. Причина сочетания потока/decoder/Media3 пока не установлена.
 
-Начат отдельный сравнительный прогон другого канала AliBumayeTV/480p; итог ожидается. Периодические UiAutomation снимки выключены; null в chat fields sampler означает отсутствие такого измерения, а не отсутствие сообщений.
+Отдельный сравнительный прогон AliBumayeTV/480p на этом APK **PASS**: окно renderer1811.490s (30мин11.490с),54306 rendered/31 dropped/73 skipped, max consecutive dropped3; одна rebuffer450ms,0 player errors. НачальноеAuto-окно14.215s/805rendered/3dropped отдельно от ручного480p. После завершения пульт вернул выбранную карточку. `evidence/beta5-final-soak480-comparator/` и `beta5-final-soak480-comparator-summary.json`.
+
+31 memory sample за1800.1s: PSS first95885/last96781/min95133/max105712KB. В начале/середине/конце наблюдались2/5/5 реальных сообщений,12 разных хешей; это не30min busy-chat stress. Периодические UiAutomation снимки выключены; null в sampler означает отсутствие такого измерения. Ручные панели: текст18→draft20→Cancel18, overlay→drafttheater→Cancel; player не перезапускался. Финальный кадр содержит Twitch «Commercial break in progress», не ошибку приложения; непрерывный decode включает этот участок трансляции. Во время прогона выполнялись beta.6 Gradle/R8 и QA второгоAVD на общемhost, поэтому это не изолированныйbenchmark. Эти результаты относятся к beta.5/cb26…, не переименованы в beta.6/459ff94… .
+
+## Независимая диагностика decoder4003
+
+Минимальный Media3/OkHttp/SurfaceView на5562, без PlaybackSession/MediaSession/ContentFrame/чата/панелей, также воспроизвёл KSPKSP4003 в фиксированном AVC852×480/30fps с первогоprepare. Отprepare162.089s, окноdecoder160.712s,4796rendered/61dropped/7skipped; softwareOMX.google.h264.decoder иSoftAVCDecFatal0xffffffff/ACodec0x80001019. Диагностический10minтест завершилсяFAIL1/1 раньше срока, cleanupвыполнен. Исходники `tools/diagnostics/MinimalDecoderComparisonTest.kt`, evidence `beta6-minimal-comparator-{numeric,instrumentation,codec}.log`. Оболочка приложения не необходима для ошибки; причина сочетанияисточника/Media3/platform остаётсянеустановленной. Это отдельный процесс наобщемhost с параллельнымlive и не benchmark APK.
 
 ## Beta.5 — предварительный кандидат, не финальный APK
 
