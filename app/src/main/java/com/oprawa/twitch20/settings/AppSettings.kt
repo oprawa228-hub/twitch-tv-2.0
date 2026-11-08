@@ -3,7 +3,7 @@ package com.oprawa.twitch20.settings
 enum class ChatMode { OFF, OVERLAY, THEATER }
 enum class ChatPosition { TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
 
-data class ChatStyle(val textSizeSp: Int = 16, val opacity: Float = .65f) {
+data class ChatStyle(val textSizeSp: Int = 18, val opacity: Float = .65f) {
     internal fun normalized(): ChatStyle = copy(textSizeSp = textSizeSp.coerceIn(12, 24),
         opacity = if (opacity.isFinite()) opacity.coerceIn(0f, 1f) else .65f)
 }
@@ -41,7 +41,7 @@ internal object SettingsCodec {
     fun decode(values: Map<String, *>): AppSettings {
         val legacyMode = if (values["chatEnabled"] as? Boolean == false) ChatMode.OFF
             else enumValue<ChatMode>(values["chatMode"]) ?: ChatMode.OVERLAY
-        val legacyStyle = ChatStyle(values["chatTextSizeSp"] as? Int ?: 16,
+        val legacyStyle = ChatStyle(values["chatTextSizeSp"] as? Int ?: 18,
             values["chatOpacity"] as? Float ?: .65f).normalized()
         fun style(prefix: String): ChatStyle = ChatStyle(
             values["${prefix}TextSizeSp"] as? Int ?: legacyStyle.textSizeSp,

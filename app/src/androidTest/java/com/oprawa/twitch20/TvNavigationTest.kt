@@ -106,7 +106,7 @@ class TvNavigationTest {
         // Uses Android's own long-press timing/flag, reproducing the 500ms vs 550ms regression.
         device.executeShellCommand("input keyevent --longpress KEYCODE_DPAD_CENTER")
         assertTrue("Длинный OK не открыл страницу канала", device.wait(Until.hasObject(By.text("Клипы")), 25_000))
-        assertFalse("Длинный OK запустил плеер", device.hasObject(By.text("Пауза")))
+        assertFalse("Длинный OK запустил плеер", device.hasObject(By.desc("Пауза")))
         assertFalse("Длинный OK запустил подключение к видео", device.hasObject(By.text("Подключение к Twitch…")))
         device.pressBack()
         assertTrue(device.wait(Until.hasObject(By.text("Прямые эфиры")), 8_000))
@@ -137,10 +137,9 @@ class TvNavigationTest {
 
         val oldSize = original.overlayStyle.textSizeSp
         openEditorPage("Настроить чат поверх видео")
-        focusDescription("Чат — размер текста: $oldSize")
-        val newSize = if (oldSize == 24) oldSize - 2 else oldSize + 2
-        if (oldSize == 24) device.pressDPadLeft() else device.pressDPadRight()
-        assertTrue(device.hasObject(By.desc("Чат — размер текста: $newSize")))
+        val newSize = if (oldSize == 22) 14 else 22
+        selectTextSize("Чат", oldSize, newSize)
+        assertTrue(device.hasObject(By.desc(fontLauncher(newSize))))
         assertTrue(device.hasObject(By.text("Пример: Чат поверх видео")))
         assertTrue(device.hasObject(By.text("После сохранения: Без чата")))
         device.pressBack()
@@ -148,7 +147,7 @@ class TvNavigationTest {
         assertTrue(device.hasObject(By.desc("Чат поверх видео: Выключен")))
         assertTrue(device.hasObject(By.desc("Кинотеатр: Выключен")))
         openEditorPage("Настроить кинотеатр")
-        focusDescription("Кинотеатр — размер текста: ${original.theaterStyle.textSizeSp}")
+        focusDescription(fontLauncher(original.theaterStyle.textSizeSp))
         assertTrue(device.hasObject(By.text("Пример: Кинотеатр")))
         assertTrue(device.hasObject(By.text("После сохранения: Без чата")))
         device.pressBack()
@@ -169,15 +168,13 @@ class TvNavigationTest {
         assertTrue(device.wait(Until.hasObject(By.desc(changed)), 3_000))
         val overlaySize = saved.overlayStyle.textSizeSp
         val theaterSize = saved.theaterStyle.textSizeSp
-        val overlayDraft = if (overlaySize == 24) overlaySize - 2 else overlaySize + 2
-        val theaterDraft = if (theaterSize == 24) theaterSize - 2 else theaterSize + 2
+        val overlayDraft = if (overlaySize == 22) 14 else 22
+        val theaterDraft = if (theaterSize == 14) 18 else 14
         openEditorPage("Настроить чат поверх видео")
-        focusDescription("Чат — размер текста: $overlaySize")
-        if (overlaySize == 24) device.pressDPadLeft() else device.pressDPadRight()
+        selectTextSize("Чат", overlaySize, overlayDraft)
         device.pressBack()
         openEditorPage("Настроить кинотеатр")
-        focusDescription("Кинотеатр — размер текста: $theaterSize")
-        if (theaterSize == 24) device.pressDPadLeft() else device.pressDPadRight()
+        selectTextSize("Кинотеатр", theaterSize, theaterDraft)
         device.pressBack()
         focusText("Проверить обновления")
         device.pressDPadCenter()
@@ -188,10 +185,10 @@ class TvNavigationTest {
         assertEquals("Вложенный экран потерял черновик", changed, chatDescription())
         assertTrue(device.hasObject(By.text("Есть несохранённые изменения")))
         openEditorPage("Настроить чат поверх видео")
-        focusDescription("Чат — размер текста: $overlayDraft")
+        focusDescription(fontLauncher(overlayDraft))
         device.pressBack()
         openEditorPage("Настроить кинотеатр")
-        focusDescription("Кинотеатр — размер текста: $theaterDraft")
+        focusDescription(fontLauncher(theaterDraft))
         device.pressBack()
         device.pressBack()
         assertTrue(device.wait(Until.gone(By.text("Предпросмотр")), 5_000))
@@ -207,10 +204,9 @@ class TvNavigationTest {
         openSettings()
         openEditorPage("Настроить кинотеатр")
         val before = saved.theaterStyle.textSizeSp
-        val changed = if (before == 24) 22 else before + 2
-        focusDescription("Кинотеатр — размер текста: $before")
-        if (before == 24) device.pressDPadLeft() else device.pressDPadRight()
-        assertTrue(device.hasObject(By.desc("Кинотеатр — размер текста: $changed")))
+        val changed = if (before == 22) 14 else 22
+        selectTextSize("Кинотеатр", before, changed)
+        assertTrue(device.hasObject(By.desc(fontLauncher(changed))))
         assertEquals("Изменение подстраницы записало черновик", saved, SettingsStore(instrumentation.targetContext).state.value)
         device.pressBack()
         assertTrue(device.wait(Until.hasObject(By.descStartsWith("Чат поверх видео: ")), 3_000))
@@ -224,11 +220,61 @@ class TvNavigationTest {
         device.pressBack()
         openEditorPage("Настроить кинотеатр")
         assertTrue("Переход на другую страницу потерял черновик профиля",
-            device.wait(Until.hasObject(By.desc("Кинотеатр — размер текста: $changed")), 3_000))
+            device.wait(Until.hasObject(By.desc(fontLauncher(changed))), 3_000))
         device.pressBack()
         device.pressBack()
         assertTrue(device.wait(Until.gone(By.text("Предпросмотр")), 5_000))
         assertEquals("Back из корня должен отменить весь черновик", saved, SettingsStore(instrumentation.targetContext).state.value)
+    }
+
+    @Test fun textSizeFocusPreviewsWithoutChangingDraftAndBackCancelsOnlyPicker() {
+        val saved = SettingsStore(instrumentation.targetContext).state.value
+        val before = saved.overlayStyle.textSizeSp
+        val changed = if (before == 22) 14 else 22
+        openSettings()
+        openEditorPage("Настроить чат поверх видео")
+        focusDescription(fontLauncher(before))
+        device.pressDPadCenter()
+        awaitStableFocus()
+        val originalOption = device.findObject(By.desc("Чат — размер текста: ${fontLabel(before)}"))
+        assertNotNull(originalOption)
+        assertTrue("Picker должен открыться на текущем размере", targetOrAncestorHasFocus(originalOption!!))
+        focusDescription("Чат — размер текста: ${fontLabel(changed)}")
+        assertFalse("Фокус записал значение в черновик", device.hasObject(By.text("Есть несохранённые изменения")))
+        assertEquals(saved, SettingsStore(instrumentation.targetContext).state.value)
+        device.pressBack()
+        assertTrue("Back из picker вышел из профиля",
+            device.wait(Until.hasObject(By.desc(fontLauncher(before))), 3_000))
+        awaitStableFocus()
+        assertTrue("Back не восстановил строку размера",
+            targetOrAncestorHasFocus(device.findObject(By.desc(fontLauncher(before)))!!))
+        selectTextSize("Чат", before, changed)
+        assertTrue(device.hasObject(By.text("Есть несохранённые изменения")))
+        assertEquals("OK внутри picker записал настройки без общего Save", saved,
+            SettingsStore(instrumentation.targetContext).state.value)
+        device.pressBack()
+        device.pressBack()
+        assertTrue(device.wait(Until.gone(By.text("Предпросмотр")), 5_000))
+        assertEquals("Отмена корня сохранила выбранный размер", saved,
+            SettingsStore(instrumentation.targetContext).state.value)
+    }
+
+    private fun fontLabel(size: Int): String = when (size) {
+        14 -> "Маленький"
+        18 -> "Средний"
+        22 -> "Большой"
+        else -> "Свой размер"
+    }
+
+    private fun fontLauncher(size: Int) = "Размер текста: ${fontLabel(size)}"
+
+    private fun selectTextSize(profile: String, before: Int, after: Int) {
+        focusDescription(fontLauncher(before))
+        device.pressDPadCenter()
+        focusDescription("$profile — размер текста: ${fontLabel(after)}")
+        device.pressDPadCenter()
+        assertTrue(device.wait(Until.hasObject(By.desc(fontLauncher(after))), 3_000))
+        awaitStableFocus()
     }
 
     @Test fun oneBackClosesPlayerSettingsAndKeepsHud() {
@@ -238,10 +284,10 @@ class TvNavigationTest {
             card.contentDescription?.contains("В ЭФИРЕ") == true)
         device.pressDPadCenter()
         assertTrue("Прямой эфир не начал воспроизведение",
-            device.wait(Until.hasObject(By.text("Пауза")), 45_000))
+            device.wait(Until.hasObject(By.desc("Пауза")), 45_000))
         // Reveal only when hidden; a confirm on visible HUD would pause live playback.
-        if (!device.hasObject(By.text("Качество"))) device.pressDPadCenter()
-        focusText("Настройки")
+        if (!device.hasObject(By.desc("Качество"))) device.pressDPadCenter()
+        focusDescription("Настройки")
         device.pressDPadCenter()
         assertTrue("Не открылась панель настроек плеера",
             device.wait(Until.hasObject(By.text("Просмотр")), 5_000))
@@ -251,8 +297,8 @@ class TvNavigationTest {
 
         assertTrue("Первый Back только переместил фокус и оставил панель",
             device.wait(Until.gone(By.text("Просмотр")), 3_000))
-        assertTrue("Back скрыл HUD вместе с панелью", device.hasObject(By.text("Качество")))
-        assertTrue("Back остановил воспроизведение", device.hasObject(By.text("Пауза")))
+        assertTrue("Back скрыл HUD вместе с панелью", device.hasObject(By.desc("Качество")))
+        assertTrue("Back остановил воспроизведение", device.hasObject(By.desc("Пауза")))
         assertFalse("Back вышел в каталог", device.hasObject(By.text("Прямые эфиры")))
         assertEquals(packageName, device.currentPackageName)
     }

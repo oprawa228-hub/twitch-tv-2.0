@@ -108,7 +108,7 @@ class PlayerErrorFocusTest {
 
     private fun focusHudAction(label: String, stepsFromFirst: Int) {
         // Exact fixture: idle VOD HUD has seven actions in this order:
-        // Watch, -10, +10, Quality, Chat, Theater, Settings. Clamp to its left edge using
+        // -10, Watch, +10, Quality, Chat, Theater, Settings. Clamp to its left edge using
         // real remote events, then traverse to the intended action. Opening the intended
         // panel and its save callback provide the behavioral assertion, not a UIA focus flag.
         saveNavigationDiagnostics("hud-initial", label)

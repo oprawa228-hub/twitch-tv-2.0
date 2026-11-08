@@ -38,12 +38,12 @@ try:
         d.adb('shell', 'settings', 'put', 'system', 'font_scale', scale)
         time.sleep(2)  # Allow Android's asynchronous display/font configuration restart to settle.
         launch(); time.sleep(2)
-        capture('beta8-release-catalog-' + name)
-        settings(); capture('beta8-release-settings-' + name)
+        capture('beta9-release-catalog-' + name)
+        settings(); capture('beta9-release-settings-' + name)
         d.focus('Настроить чат поверх видео'); key('DPAD_CENTER')
-        wait_text('Размер текста'); capture('beta8-release-overlay-' + name)
+        wait_text('Назад к обзору'); capture('beta9-release-overlay-' + name)
         key('BACK'); d.focus('Настроить кинотеатр'); key('DPAD_CENTER')
-        wait_text('Размер текста'); capture('beta8-release-theater-' + name)
+        wait_text('Назад к обзору'); capture('beta9-release-theater-' + name)
         key('BACK'); key('BACK')
         print('Captured native ' + name + ' at ' + size + '/' + str(density) + ' font ' + scale, flush=True)
 finally:

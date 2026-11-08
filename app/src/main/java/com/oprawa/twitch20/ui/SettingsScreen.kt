@@ -83,6 +83,7 @@ fun SettingsScreen(
     onCheckUpdates: () -> Unit,
 ) {
     var draft by rememberSaveable(settings, stateSaver = SettingsDraftSaver) { mutableStateOf(settings) }
+    var transientPreview by remember { mutableStateOf<AppSettings?>(null) }
     val editor = rememberSettingsEditorState()
     val first = remember { FocusRequester() }
     BackHandler { if (!editor.back()) onBack() }
@@ -94,7 +95,8 @@ fun SettingsScreen(
                 color = TvColors.Muted, fontSize = 13.sp, lineHeight = 18.sp,
                 modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                ChatSettingsControls(draft, { draft = it }, first, state = editor, onCheckUpdates = onCheckUpdates)
+                ChatSettingsControls(draft, { draft = it }, first, state = editor, onCheckUpdates = onCheckUpdates,
+                    onPreviewSettings = { transientPreview = it })
             }
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 TvAction("Сохранить", { onSave(draft) }, Modifier.weight(1f))
@@ -110,7 +112,7 @@ fun SettingsScreen(
             }
             Text("Пример: ${chatModeLabel(shownMode)}", color = TvColors.Link,
                 fontSize = 16.sp, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
-            SettingsPreview(draft.copy(chatMode = shownMode))
+            SettingsPreview((transientPreview ?: draft).copy(chatMode = shownMode))
             Text("После сохранения: ${chatModeLabel(draft.chatMode)}", color = TvColors.Text,
                 fontSize = 14.sp, modifier = Modifier.padding(top = 12.dp))
             Text(if (shownMode != draft.chatMode) "Вы редактируете неактивный профиль. Его режим не включится."
@@ -121,7 +123,7 @@ fun SettingsScreen(
                 val action = if (editor.overviewFocus == null || editor.overviewFocus?.startsWith("MODE_") == true)
                     "OK включить / выключить · ↓ выбрать раздел" else "OK открыть раздел"
                 "$action\nНазад — отменить все изменения"
-            } else "← → изменить значение · OK следующее\nНазад — к обзору, изменения останутся"
+            } else "Выберите параметр · OK открыть / выбрать\nНазад — к обзору, изменения останутся"
             Text(hint,
                 color = TvColors.Muted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 14.dp))
             Text("Twitch 2.0 · ${BuildConfig.VERSION_NAME}",
@@ -225,7 +227,8 @@ private fun SettingsPreview(settings: AppSettings) {
             if (settings.chatEnabled) {
                 if (theater) ChatPanel(messages, settings, Modifier.align(Alignment.CenterEnd)
                     .fillMaxWidth(ChatLayout.theaterWidthFraction).fillMaxHeight())
-                else BoxWithConstraints(Modifier.fillMaxSize().padding(ChatLayout.inset)) {
+                else BoxWithConstraints(Modifier.fillMaxSize().padding(start=ChatLayout.inset, end=ChatLayout.inset,
+                    top=52.dp, bottom=ChatLayout.inset)) {
                     val right = settings.chatPosition == ChatPosition.TOP_RIGHT || settings.chatPosition == ChatPosition.BOTTOM_RIGHT
                     val bottom = settings.chatPosition == ChatPosition.BOTTOM_LEFT || settings.chatPosition == ChatPosition.BOTTOM_RIGHT
                     val horizontal by animateFloatAsState(if (right) 1f else 0f,
@@ -240,8 +243,7 @@ private fun SettingsPreview(settings: AppSettings) {
                 }
             }
             if (settings.showClock) {
-                val clockAlignment = if (settings.chatEnabled && settings.chatMode == ChatMode.OVERLAY &&
-                    settings.chatPosition == ChatPosition.TOP_RIGHT) Alignment.TopStart else Alignment.TopEnd
+                val clockAlignment = Alignment.TopEnd
                 Box(Modifier.fillMaxHeight().fillMaxWidth(if (theater) 1f - ChatLayout.theaterWidthFraction else 1f)) {
                     Text("21:08", color = TvColors.Text, fontSize = 17.sp,
                         modifier = Modifier.align(clockAlignment).padding(20.dp)

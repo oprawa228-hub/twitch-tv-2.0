@@ -263,6 +263,13 @@ class PlaybackSession(context: Context) {
         publish()
     }
 
+    fun seekTo(positionMs: Long, playWhenReady: Boolean? = null) {
+        if (released || mutableState.value.isLive || !player.isCurrentMediaItemSeekable) return
+        player.seekTo(PlaybackPolicy.seekTarget(0, positionMs, player.duration))
+        if (playWhenReady != null) player.playWhenReady = playWhenReady
+        publish()
+    }
+
     fun seekToLive() {
         if (released || !mutableState.value.isLive) return
         player.seekToDefaultPosition()
