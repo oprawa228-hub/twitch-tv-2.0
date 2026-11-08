@@ -224,7 +224,7 @@ class UpdateManager(context: Context) {
         try {
             if (Build.VERSION.SDK_INT >= 26 && !app.packageManager.canRequestPackageInstalls()) {
                 mutable.value = mutable.value.copy(status = "permission",
-                    message = "Разрешите обновления из Twitch 2.0, вернитесь и снова выберите «Установить»")
+                    message = "Разрешите обновления из Twitch 2.0. Если Android закроет приложение, откройте его снова и повторите проверку и загрузку.")
                 activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${app.packageName}")))
                 return
             }
