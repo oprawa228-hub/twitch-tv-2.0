@@ -1,6 +1,7 @@
 package com.oprawa.twitch20.ui
 
 import android.view.KeyEvent as AndroidKeyEvent
+import android.view.ViewConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -106,7 +107,8 @@ fun CatalogScreen(
         // A background refresh must not steal focus from the navigation rail.
         if (entries.isNotEmpty() && !restored) {
             val index = keys.indexOf(selectedKey).coerceAtLeast(0)
-            state.scrollToItem(index)
+            withFrameNanos { }
+            if (state.layoutInfo.visibleItemsInfo.none { it.key == keys[index] }) state.scrollToItem(index)
             // The target must be composed after scrolling before focus can be restored.
             withFrameNanos { }
             withFrameNanos { }
@@ -180,13 +182,15 @@ private fun CatalogCard(entry: CatalogEntry, requester: FocusRequester, onFocuse
                     AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER)) false
             else {
                 if (key.action == AndroidKeyEvent.ACTION_DOWN && key.repeatCount == 0) longActivated = false
-                val held = key.eventTime - key.downTime >= 550
+                val held = key.isLongPress || key.eventTime - key.downTime >= ViewConfiguration.getLongPressTimeout()
                 if (key.action == AndroidKeyEvent.ACTION_DOWN && held && !longActivated && entry.details != null) {
                     longActivated = true
-                    entry.details.invoke()
                 }
-                if (key.action == AndroidKeyEvent.ACTION_UP && !key.isCanceled && !longActivated) {
-                    if (held && entry.details != null) entry.details.invoke() else entry.open()
+                if (key.action == AndroidKeyEvent.ACTION_UP) {
+                    if (!key.isCanceled) {
+                        if ((longActivated || held) && entry.details != null) entry.details.invoke() else entry.open()
+                    }
+                    longActivated = false
                 }
                 true
             }

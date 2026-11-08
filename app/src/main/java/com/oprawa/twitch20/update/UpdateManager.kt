@@ -10,8 +10,11 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +47,11 @@ data class UpdateState(
 
 /** No credentials; only the new project's public release channel is reachable. */
 class UpdateManager(context: Context) {
+    private companion object {
+        // Cancellation handlers can run on Main. Socket close/cancel must never run there.
+        val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        fun cleanup(action: () -> Unit) { cleanupScope.launch { runCatching(action) } }
+    }
     private val app = context.applicationContext
     private val mutable = MutableStateFlow(UpdateState())
     val state = mutable.asStateFlow()
@@ -164,6 +172,7 @@ class UpdateManager(context: Context) {
                 if (target.exists()) check(target.delete()) { "Не удалось заменить прежнюю загрузку" }
                 check(part.renameTo(target)) { "Не удалось сохранить проверенный APK" }
                 verifiedFile = target
+                removeOlderDownloads(target)
                 publish(UpdateState("ready", "Файл проверен. Подтвердите установку в Android.", 1f, release))
             } finally {
                 part.delete()
@@ -178,7 +187,7 @@ class UpdateManager(context: Context) {
                 mutable.value = mutable.value.copy(status = "cancelled", message = "Операция отменена", progress = 0f)
             call to job
         }
-        active.first?.cancel()
+        cleanup { active.first?.cancel() }
         active.second?.cancel()
     }
 
@@ -226,7 +235,8 @@ class UpdateManager(context: Context) {
                 } catch (_: Exception) {
                     if (generation.get() == token) publish(UpdateState("error", "Не удалось получить проверенное обновление. Проверьте сеть и повторите.", available = release))
                 } finally {
-                    call?.cancel()
+                    val finished = call
+                    cleanup { finished?.cancel() }
                     call = null
                     job = null
                 }
@@ -241,13 +251,13 @@ class UpdateManager(context: Context) {
         val pending = client.newCall(Request.Builder().url(url).header("Accept", "application/vnd.github+json")
             .header("User-Agent", "Twitch20-AndroidTV").build())
         call = pending
-        continuation.invokeOnCancellation { pending.cancel() }
+        continuation.invokeOnCancellation { cleanup { pending.cancel() } }
         pending.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 if (continuation.isActive) continuation.resumeWithException(e)
             }
             override fun onResponse(call: Call, response: Response) {
-                continuation.resume(response) { _, value, _ -> value.close() }
+                continuation.resume(response) { _, value, _ -> cleanup { value.close() } }
             }
         })
     }
@@ -276,6 +286,19 @@ class UpdateManager(context: Context) {
         json.getString("packageName"), json.getLong("versionCode"), json.getString("versionName"),
         json.getInt("minSdk"), json.getString("apkUrl"), json.getString("sha256"), json.getString("certificateSha256"),
     )
+
+    /** Called only after the new archive verifies and only from execute's IO dispatcher. */
+    private fun removeOlderDownloads(keep: File) {
+        val root = folder.canonicalFile
+        val keepPath = keep.canonicalFile
+        require(keepPath.parentFile == root) { "Недопустимый каталог обновления" }
+        root.listFiles()?.forEach { candidate ->
+            if (candidate.name.matches(Regex("update-[0-9]+\\.(apk|part)")) && candidate.isFile &&
+                candidate.canonicalFile.parentFile == root && candidate.canonicalFile != keepPath) {
+                check(candidate.delete()) { "Не удалось очистить прежнее обновление" }
+            }
+        }
+    }
 
     @Suppress("DEPRECATION")
     private fun installedInfo() = app.packageManager.getPackageInfo(app.packageName, signingFlags())

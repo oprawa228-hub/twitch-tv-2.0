@@ -87,7 +87,7 @@ private fun TwitchApp() {
     var busy by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var clock by remember { mutableStateOf("") }
-    val railFocus = remember { FocusRequester() }
+    fun closeSettings() { settingsOpen=false; catalogState.removeState("settings-panel") }
 
     fun navigate(next: Route, push: Boolean = true) {
         if (push) history.add(route) else history.clear()
@@ -170,8 +170,10 @@ private fun TwitchApp() {
         }
         }
         if(settings.showClock && watching==null && !settingsOpen && !aboutOpen && !exitOpen) Text(clock,color=TvColors.Muted,fontSize=16.sp,modifier=Modifier.align(Alignment.TopEnd).padding(end=28.dp,top=18.dp))
-        if(settingsOpen) Box(Modifier.fillMaxSize().background(TvColors.Background)) {
-            SettingsScreen(settings,onSave={settingsStore.save(it);settingsOpen=false},onBack={settingsOpen=false},onCheckUpdates={aboutOpen=true})
+        if(settingsOpen && !aboutOpen) Box(Modifier.fillMaxSize().background(TvColors.Background)) {
+            catalogState.SaveableStateProvider("settings-panel") {
+                SettingsScreen(settings,onSave={settingsStore.save(it);closeSettings()},onBack={closeSettings()},onCheckUpdates={aboutOpen=true})
+            }
         }
         if(aboutOpen) Box(Modifier.fillMaxSize().background(TvColors.Background)) {
             BackHandler { aboutOpen=false }
@@ -202,15 +204,18 @@ private fun TwitchApp() {
     val settings by store.state.collectAsStateWithLifecycle()
     val messages by chat.messages.collectAsStateWithLifecycle()
     val lifecycleOwner=LocalLifecycleOwner.current
-    val currentSettings by rememberUpdatedState(settings)
     var resolving by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retry by remember { mutableIntStateOf(0) }
     val positions=remember { PlaybackHistory(context) }
+    fun savePosition() {
+        if(target.kind!="live" && session.player.mediaItemCount>0)
+            positions.save(target.kind,target.id,session.player.currentPosition.coerceAtLeast(0))
+    }
     DisposableEffect(session,lifecycleOwner) {
         val observer=LifecycleEventObserver { _,event ->
             when(event) {
-                Lifecycle.Event.ON_STOP -> { session.onBackground();chat.close() }
+                Lifecycle.Event.ON_STOP -> { savePosition();session.onBackground();chat.close() }
                 Lifecycle.Event.ON_START -> { session.onForeground();if(target.kind=="live") chat.connect(target.login) }
                 else -> Unit
             }
@@ -219,9 +224,12 @@ private fun TwitchApp() {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     DisposableEffect(session) { onDispose {
-        if(target.kind!="live") positions.save(target.kind,target.id,session.player.currentPosition.coerceAtLeast(0))
+        savePosition()
         chat.release();session.release()
     } }
+    LaunchedEffect(session) {
+        while(true) { delay(15_000);savePosition() }
+    }
     LaunchedEffect(target.login) {
         if(target.kind=="live" && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) chat.connect(target.login) else chat.close()
     }
@@ -240,7 +248,7 @@ private fun TwitchApp() {
     else if(resolving) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("Подключение к Twitch…",color=TvColors.Text)}
     else PlayerScreen(session,target.title,target.subtitle,onBack,
         chatContent=if(target.kind=="live") ({previewSettings -> ChatPanel(messages,previewSettings)}) else null,
-        settings=settings,onSettings=onSettings,onSettingsChange={store.save(it)},onRetry={retry++})
+        settings=settings,onSettings=onSettings,onSettingsChange={store.save(it)},onRetry={savePosition();retry++})
 }
 
 @Composable private fun AccountScreen(auth:TwitchAuth) {
@@ -276,24 +284,34 @@ private fun TwitchApp() {
     val state by updater.state.collectAsStateWithLifecycle()
     val scope=rememberCoroutineScope()
     val activity=LocalContext.current as android.app.Activity
-    var testChannel by rememberSaveable { mutableStateOf(true) }
+    val prefs=remember { activity.getSharedPreferences("updates",android.content.Context.MODE_PRIVATE) }
+    var testChannel by remember { mutableStateOf(prefs.getBoolean("testChannel",true)) }
+    val first=remember { FocusRequester() }
+    LaunchedEffect(Unit) { first.requestFocus() }
     Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
         Text(state.message,color=TvColors.Text,fontSize=18.sp)
         if(state.status=="downloading") Text("${(state.progress*100).toInt()}%",color=TvColors.Focus)
-        Row(horizontalArrangement=Arrangement.spacedBy(16.dp)) {
+        Row(Modifier.focusRequester(first),horizontalArrangement=Arrangement.spacedBy(16.dp)) {
             when(state.status) {
                 "checking","downloading" -> TvAction("Отменить",{updater.cancel()})
                 "available" -> TvAction("Скачать ${state.available?.versionName.orEmpty()}",{scope.launch{updater.download()}})
                 "ready","permission","installing" -> TvAction("Установить обновление",{updater.install(activity)})
                 else -> TvAction("Проверить обновления",{scope.launch{updater.check(testChannel)}})
             }
-            TvAction(if(testChannel)"Канал: тестовый" else "Канал: обычный",{testChannel=!testChannel})
+            TvAction(if(testChannel)"Канал: тестовый" else "Канал: обычный",{
+                testChannel=!testChannel
+                prefs.edit().putBoolean("testChannel",testChannel).apply()
+                updater.cancel()
+                scope.launch { updater.check(testChannel) }
+            })
         }
     }
 }
 
 @Composable private fun MessageScreen(title:String,message:String,action:String,onAction:()->Unit) {
+    val first=remember { FocusRequester() }
+    LaunchedEffect(Unit) { first.requestFocus() }
     Column(Modifier.fillMaxSize().padding(40.dp),verticalArrangement=Arrangement.spacedBy(24.dp)) {
-        Text(title,fontSize=28.sp,color=TvColors.Text);Text(message,color=TvColors.Muted,fontSize=18.sp);TvAction(action,onAction)
+        Text(title,fontSize=28.sp,color=TvColors.Text);Text(message,color=TvColors.Muted,fontSize=18.sp);TvAction(action,onAction,modifier=Modifier.focusRequester(first))
     }
 }

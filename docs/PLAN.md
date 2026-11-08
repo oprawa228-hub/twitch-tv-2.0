@@ -1,43 +1,46 @@
-# Twitch 2.0 Implementation Plan
+# План Twitch 2.0
 
-**Goal:** Independent Android TV app, signed APK, public separate GitHub release and proven in-app update.
-**Spec:** TASK.txt; visual contract design.md; evidence research-twitch.md and research-platform.md.
-**Architecture:** Kotlin/Compose TV UI, isolated TwitchRepository, one PlaybackSession, bounded ChatClient, encrypted device auth session, persistent settings, validated GitHub updater. UI panels never create players. One app module with responsibility-based packages.
-**Tech Stack:** AGP 8.13.2 / Gradle 8.13 / JDK17; Kotlin+Compose compiler 2.3.10; compile/target36 min23; Compose BOM2026.06.01, TV1.1.0, Media3 1.11.1, OkHttp5.5.1, Coil3.4.0.
+Обновлено 2026-11-08. Цель — самостоятельное Android TV приложение, подписанный APK, отдельный публичный GitHub-релиз и проверенное обновление через приложение. Первый APK не означает завершение поручения. Требования: [TASK.txt](TASK.txt); визуальный контракт: [design.md](design.md); объём: [SCOPE.md](SCOPE.md); фактические проверки: [TEST_RESULTS.md](TEST_RESULTS.md).
 
-## Constraints and rulings
-- New package `com.oprawa.twitch20`; old application and repository untouched.
-- New public `oprawa228-hub/twitch-tv-2.0`: user requires token-free updates and authorized create/push/release.
-- User explicitly delegates technical choices and autonomous implementation, overriding skill approval handoffs. Plan/design choices are agent decisions, not claimed user approvals.
-- Existing checkout is empty and appropriate; no extra worktree needed.
-- Media skills' fixed 1.10.1 guidance is superseded by independently verified stable1.11.1; retain ownership/surface/telemetry principles.
-- Guest GQL/Usher works in probes but is undocumented. Own public OAuth client required for official login/follows. Subscriber-only access unverified, never silently promised.
-- No demo data in production catalog. Examples exist only inside labeled settings previews.
-- One current plan, root owns emulator/build/signing/publication.
+## Принятые решения
 
-## Review focus
-1. Old request completion after new selection must not replace current screen/video.
-2. Back closes nested panels before playback; return restores card and scroll.
-3. Session expiration/network loss must expose recovery, never spinner forever or token output.
-4. Preview cancel leaves saved settings unchanged and stops invisible animation.
-5. Update rejects wrong package, certificate, digest, SDK and downgrade; settings survive system install.
+- Новый пакет `com.oprawa.twitch20`, проект `D:/Project/Twitch TV 2.0`, отдельный публичный [репозиторий](https://github.com/oprawa228-hub/twitch-tv-2.0). Старые исходники, APK и канал обновлений не изменяются.
+- Kotlin/Compose TV, один Activity, изолированный TwitchRepository, один PlaybackSession на просмотр, ограниченный ChatClient, защищённый OAuth, настройки и updater. Панели не создают плеер.
+- AGP 8.13.2 / Gradle 8.13 / JDK 17; Kotlin/Compose compiler 2.3.10; compile/target SDK 36, min SDK 23; Compose BOM 2026.06.01, TV Material 1.1.0, Media3 1.11.1, **OkHttp 4.12.1**, Coil 3.4.0. OkHttp 5.5.1 отклонён фактической проверкой metadata: требует SDK 37.
+- Настройки/ограниченная история — SharedPreferences; OAuth — AtomicFile + Android Keystore AES-GCM. DataStore исследован, но не внедрён; причина в SCOPE.md.
+- Гостевой GQL/Usher работает в пробах и APK, но недокументирован. Официальный DCF/Helix — отдельная интеграция. Subscriber-only/Turbo не обещаны.
+- Пользователь делегировал технические решения, создание репозитория и публикацию проверенных новых APK. Root единолично управляет устройством, сборками, подписью и публикацией. Навыки: [SKILLS.md](SKILLS.md).
+- Public Twitch app зарегистрирован. Реальный вход `oprawa` и личный каталог состоялись; после этого пользователь попросил пропустить дальнейшую проверку аккаунта. Повторный вход сейчас не запрашивать, независимая работа продолжается.
 
-## Tasks
-- [x] A1 Read full task and current old-project overview; inspect real screenshots; independent parallel research and real guest API probes.
-- [ ] A2 Finalize design/dependency decisions and concise skills ledger.
-- [ ] B1 Build reproducible project and separate emulator; launch real catalog; D-pad focus and real Media3 stream, first-frame/memory baseline.
-  Files: root Gradle wrapper/build, MainActivity.kt, ui/CatalogScreen.kt, data/Models.kt, data/TwitchRepository.kt, playback/PlaybackSession.kt, ui/PlayerScreen.kt.
-  Interfaces: repository suspend streams(categoryId?), categories(), search(query), channel(login), videos(login), clips(login), resolveLive/Video/Clip():String. Channel(id,login,name,title,category,imageUrl,viewers,live), Category(id,name,imageUrl), Video(id,title,imageUrl,durationSeconds,kind,channelLogin,viewers).
-  Verification: parsing/error tests then :app:testDebugUnitTest; signed release install; native screenshot; real onRenderedFirstFrame.
-- [ ] C1 Catalog/search/categories/channel/live/back with actual data and restoration; retry/offline states. D-pad route tests and screenshots.
-- [ ] D1 VOD/clips/quality/seek/history; persist bounded positions. UI panel and lifecycle tests; actual Twitch VOD/clip playback.
-- [ ] D2 Chat IRC read, bounded messages/reconnect; overlay and side area with shared configuration. Parser tests; real messages and simultaneous playback.
-- [ ] D3 Settings saved/draft/cancel, animated examples using real consumers and user art. Process-restart and preview cancellation tests; screenshots.
-- [ ] D4 Device auth flow and Helix follows, encrypted token storage/validation/logout. User registration/login required; independent work continues while pending.
-- [ ] E1 Updater check/download/cancel/retry/integrity/package/signature/version; private signing key and backup outside repo. Security tests before implementation.
-- [ ] E2 Independent whole-app review; release-like functional/performance stress/network/background checks. Fix reproducible regressions.
-- [ ] E3 Publish verified two sequential signed test releases; actual in-app system-installer update preserving settings; compare published/downloaded/installed hashes. Publish stable only when scope verified.
-- [ ] E4 README/build/license/source/provenance, known limits and final handoff. Do not claim task complete with missing required results.
+## Выполнено
 
-## Current state
-Research complete enough to begin real APK risk validation. No APK yet. Public GitHub identity verified; repository creation pending. Own Twitch public client ID not registered; user requested setup steps. No physical TV connected. New emulator planned API30 x86; compatibility on physical ARM TV remains distinct.
+- [x] A1 Контекст, актуальные визуальные кадры, независимое исследование технологий/Twitch и реальные сетевые пробы.
+- [x] A2 Визуальные правила, стек, рабочие инструкции, навыки и границы объёма записаны.
+- [x] B1a Проект собирается; отдельный эмулятор API 30/x86; signed minified release установлен. Настоящие каталог → live + IRC → Back проверены; TLS cleanup crash исправлен и сценарий повторён.
+- [x] D4a Настоящий OAuth Device Code Flow завершился входом `oprawa`; Helix вернул отслеживаемый live-канал. Это не подтверждает refresh/expiry/revocation.
+- [x] E1a Код updater/проверки политики, постоянная подпись/локальный backup и staging APK/update.json/SHA256SUMS подготовлены. Публикации/OTA ещё нет.
+
+## Оставшиеся этапы
+
+- [ ] B1b Измерить release-like запуск, кадры, память и переключения. Есть только одно `first_frame_ms=1625` после resolve, без серии, p95 или click-to-frame TTFF.
+- [ ] C1 Проверить весь каталог/поиск/категории/канал/возврат к карточке и прокрутке/ошибки сети. Diagnostic D-pad instrumentation уже проходит, полный signed release путь проверяется отдельно.
+- [ ] D1 Настоящие VOD/clips в APK, качества, seek, история и позиция после перезапуска. Сетевые пробы/unit-тесты не доказывают декодирование записи/клипа.
+- [ ] D2 Оба режима чата, reconnect, busy-chat нагрузка и foreground/background. Одновременный live + IRC подтверждён; полная проверка сбоев впереди.
+- [ ] D3 Компактная панель и общие настройки: draft/реальный preview/Save/Cancel, long OK, фокус, анимации, process-restart. Diagnostic debug тесты подтверждают Cancel/Save при повторном открытии, но не полный restart или все параметры.
+- [ ] D4b Auth expiry/refresh/revoke/offline остаются непроверенными. Не задерживать другие этапы и не повторять личный вход после просьбы пользователя пропустить его.
+- [ ] E1b Android updater download/cancel/retry, неверные артефакты и installer, а не только JVM policy.
+- [ ] E2 Независимый review; длительное видео, многократные переходы, network loss/recovery, Home/resume, визуальные кадры и измерения. Физический ARM TV не подключён.
+- [ ] E3 Два последовательных signed test releases и реальное обновление предыдущего через приложение с сохранением данных. Сверить опубликованный/скачанный/установленный артефакты. Публичного APK-релиза/OTA сейчас нет.
+- [ ] E4 README, воспроизводимая сборка, лицензии/атрибуция, публикация исходников и финальные ограничения. Stable только после проверки соответствующего объёма.
+
+## Ближайший шаг
+
+Root восстанавливает точный staged signed release после diagnostic debug instrumentation и продолжает native QA. Последний instrumentation результат — **2/2 PASS, 26.628 с**, не прежние два падения focus helper. Последние JVM XML — **38/38 PASS**. Область доказательств: TEST_RESULTS.md.
+
+## Постоянные критерии review
+
+1. Поздний resolve старого канала не заменяет новый экран/видео.
+2. Back закрывает вложенный слой, HUD, затем просмотр; фокус возвращается к вызвавшему элементу.
+3. Ошибка сети/истёкшая ссылка даёт восстановление; Retry заново разрешает signed URL.
+4. Preview не сохраняется до Save; Cancel возвращает прежнее; панели не перезапускают видео.
+5. Проверяются package/version/digest/certificate/SDK обновления; Android подтверждает установку; данные переживают переход.

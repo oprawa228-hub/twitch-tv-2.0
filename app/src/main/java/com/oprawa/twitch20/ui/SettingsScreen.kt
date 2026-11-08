@@ -29,6 +29,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,6 +61,15 @@ import com.oprawa.twitch20.settings.ChatMode
 import com.oprawa.twitch20.settings.ChatPosition
 import kotlinx.coroutines.delay
 
+private val SettingsDraftSaver = listSaver<AppSettings, Any>(
+    save = { listOf(it.chatEnabled, it.chatMode.name, it.chatTextSizeSp, it.chatOpacity,
+        it.chatPosition.name, it.showClock, it.animationsEnabled) },
+    restore = { AppSettings(chatEnabled = it[0] as Boolean, chatMode = ChatMode.valueOf(it[1] as String),
+        chatTextSizeSp = it[2] as Int, chatOpacity = it[3] as Float,
+        chatPosition = ChatPosition.valueOf(it[4] as String), showClock = it[5] as Boolean,
+        animationsEnabled = it[6] as Boolean) },
+)
+
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
@@ -66,7 +77,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onCheckUpdates: () -> Unit,
 ) {
-    var draft by remember(settings) { mutableStateOf(settings) }
+    var draft by rememberSaveable(settings, stateSaver = SettingsDraftSaver) { mutableStateOf(settings) }
     val first = remember { FocusRequester() }
     BackHandler { onBack() }
     LaunchedEffect(Unit) { first.requestFocus() }
@@ -197,9 +208,13 @@ private fun SettingsPreview(settings: AppSettings) {
                         .height((540 * ChatLayout.overlayHeightFraction).dp))
                 }
             }
-            if (settings.showClock) Text("21:08", color = TvColors.Text, fontSize = 17.sp,
-                modifier = Modifier.align(Alignment.TopEnd).padding(20.dp)
-                    .background(TvColors.Background.copy(alpha = .65f), RoundedCornerShape(4.dp)).padding(4.dp))
+            if (settings.showClock) {
+                val clockAlignment = if (settings.chatEnabled && settings.chatMode == ChatMode.OVERLAY &&
+                    settings.chatPosition == ChatPosition.TOP_RIGHT) Alignment.TopStart else Alignment.TopEnd
+                Text("21:08", color = TvColors.Text, fontSize = 17.sp,
+                    modifier = Modifier.align(clockAlignment).padding(20.dp)
+                        .background(TvColors.Background.copy(alpha = .65f), RoundedCornerShape(4.dp)).padding(4.dp))
+            }
             Text("ПРИМЕР", color = TvColors.Text, fontSize = 14.sp,
                 modifier = Modifier.align(Alignment.BottomStart).padding(18.dp)
                     .background(TvColors.Accent, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 4.dp))

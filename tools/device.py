@@ -39,5 +39,5 @@ if __name__=='__main__':
     avd=adb('emu','avd','name',capture_output=True,text=True).stdout
     if 'Twitch20Test' not in avd:raise RuntimeError('Wrong emulator')
     if args.action=='observe':observe(args.value)
-    elif args.action=='focus':focus(args.value)
+    elif args.action=='focus':focus(args.value.encode('ascii').decode('unicode_escape') if '\\u' in args.value else args.value)
     else:adb('shell','input','keyevent',args.value)

@@ -2,7 +2,7 @@ package com.oprawa.twitch20
 
 import android.content.ComponentName
 import android.content.Intent
-import android.graphics.Rect
+import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -31,6 +31,7 @@ class TvNavigationTest {
         instrumentation.targetContext.startActivity(intent)
         assertTrue("Приложение не открыло каталог", device.wait(Until.hasObject(By.text("Прямые эфиры")), 15_000))
         assertEquals(packageName, device.currentPackageName)
+        awaitCatalogSettled()
     }
 
     @Test fun remoteCanReachCatalogSectionsAndSettingsAndReturn() {
@@ -38,9 +39,11 @@ class TvNavigationTest {
         device.pressDPadCenter()
         assertTrue("Каталог не сменил раздел", device.wait(Until.gone(By.text("Прямые эфиры")), 8_000))
         assertTrue("Заголовок категорий не появился", device.findObjects(By.text("Категории")).size >= 2)
+        awaitCatalogSettled()
         focusText("Эфиры")
         device.pressDPadCenter()
         assertTrue(device.wait(Until.hasObject(By.text("Прямые эфиры")), 8_000))
+        awaitCatalogSettled()
         openSettings()
         assertNotNull(device.findObject(By.descStartsWith("Чат: ")))
         device.pressBack()
@@ -85,11 +88,57 @@ class TvNavigationTest {
         }
     }
 
+    @Test fun platformLongOkOpensChannelAndBackRestoresCard() {
+        val original = device.findObject(By.focused(true))
+            ?: throw AssertionError("Нет фокуса карточки после загрузки")
+        val description = original.contentDescription
+            ?: throw AssertionError("Для проверки длинного OK нужен настоящий каталог эфиров")
+        assertTrue("Начальный фокус не на карточке эфира", description.contains("●"))
+        val channelName = description.substringBefore(", ")
+        val originalTop = original.visibleBounds.top
+
+        // Uses Android's own long-press timing/flag, reproducing the 500ms vs 550ms regression.
+        device.executeShellCommand("input keyevent --longpress KEYCODE_DPAD_CENTER")
+        assertTrue("Длинный OK не открыл страницу канала", device.wait(Until.hasObject(By.text("Клипы")), 25_000))
+        assertFalse("Длинный OK запустил плеер", device.hasObject(By.text("Пауза")))
+        assertFalse("Длинный OK запустил подключение к видео", device.hasObject(By.text("Подключение к Twitch…")))
+        device.pressBack()
+        assertTrue(device.wait(Until.hasObject(By.text("Прямые эфиры")), 8_000))
+        awaitCatalogSettled()
+        val restored = device.findObject(By.focused(true))
+            ?: throw AssertionError("Back потерял фокус карточки")
+        assertTrue("Back вернул другой канал", restored.contentDescription?.startsWith("$channelName, ") == true)
+        assertEquals("Back сдвинул строку каталога", originalTop, restored.visibleBounds.top)
+    }
+
+    @Test fun nestedUpdatesPreserveDraftUntilSettingsCancel() {
+        openSettings()
+        val original = chatDescription()
+        val changed = if (original == "Чат: Показан") "Чат: Скрыт" else "Чат: Показан"
+        focusDescription(original)
+        device.pressDPadRight()
+        assertTrue(device.wait(Until.hasObject(By.desc(changed)), 3_000))
+        focusText("Проверить обновления")
+        device.pressDPadCenter()
+        assertTrue("Не открылся вложенный экран обновлений", device.wait(Until.hasObject(By.text("Twitch 2.0")), 5_000))
+        assertTrue(device.wait(Until.gone(By.text("Предпросмотр")), 5_000))
+        device.pressBack()
+        assertTrue(device.wait(Until.hasObject(By.text("Предпросмотр")), 5_000))
+        assertEquals("Вложенный экран потерял черновик", changed, chatDescription())
+        assertTrue(device.hasObject(By.text("Есть несохранённые изменения")))
+        device.pressBack()
+        assertTrue(device.wait(Until.gone(By.text("Предпросмотр")), 5_000))
+        openSettings()
+        assertEquals("Отмена после вложенного экрана сохранила черновик", original, chatDescription())
+        device.pressBack()
+    }
+
     private fun openSettings() {
         focusText("Настройки")
         device.pressDPadCenter()
         assertTrue("Настройки не открыли пример", device.wait(Until.hasObject(By.text("Предпросмотр")), 5_000))
         assertTrue(device.wait(Until.hasObject(By.descStartsWith("Чат: ")), 3_000))
+        awaitStableFocus()
     }
 
     private fun chatDescription(): String = device.findObject(By.descStartsWith("Чат: "))?.contentDescription
@@ -102,13 +151,12 @@ class TvNavigationTest {
     private fun focusTarget(label: String, find: () -> UiObject2?) {
         repeat(24) {
             val target = find() ?: throw AssertionError("Не найден элемент $label")
-            val focused = device.findObject(By.focused(true))
-            if (target.isFocused || (focused != null && sameFocus(focused, target))) return
-            if (focused == null) {
-                device.pressDPadLeft()
-            } else {
+            if (targetOrAncestorHasFocus(target)) return
+            val focused = device.wait(Until.findObject(By.focused(true)), 2_000)
+                ?: throw AssertionError("Фокус исчез при переходе к $label")
+            run {
                 val from = focused.visibleBounds
-                val to = target.visibleBounds
+                val to = nearestFocusableAncestor(target).visibleBounds
                 when {
                     to.centerX() < from.left -> device.pressDPadLeft()
                     to.centerX() > from.right -> device.pressDPadRight()
@@ -123,10 +171,48 @@ class TvNavigationTest {
         throw AssertionError("D-pad не довёл фокус до $label; текущий: ${device.findObject(By.focused(true))?.contentDescription}")
     }
 
-    private fun sameFocus(focused: UiObject2, target: UiObject2): Boolean {
-        val focusBounds = focused.visibleBounds
-        val targetBounds = target.visibleBounds
-        return Rect.intersects(focusBounds, targetBounds) && focusBounds.contains(targetBounds.centerX(), targetBounds.centerY()) &&
-            (focused.text == target.text && target.text != null || focused.contentDescription == target.contentDescription && target.contentDescription != null)
+    private fun targetOrAncestorHasFocus(target: UiObject2): Boolean {
+        var node: UiObject2? = target
+        while (node != null) {
+            if (node.isFocused) return true
+            // Only the target's own ancestry is considered. A nearby sibling cannot satisfy this.
+            node = node.parent
+        }
+        return false
+    }
+
+    private fun nearestFocusableAncestor(target: UiObject2): UiObject2 {
+        var node: UiObject2? = target
+        while (node != null) {
+            if (node.isFocusable) return node
+            node = node.parent
+        }
+        return target
+    }
+
+    private fun awaitCatalogSettled() {
+        assertTrue("Каталог не завершил загрузку", device.wait(Until.gone(By.text("Обновление…")), 25_000))
+        assertTrue("Начальная загрузка не завершилась", device.wait(Until.gone(By.text("Загружаем каналы…")), 2_000))
+        // Both a real data result and an accessible error/retry state are valid navigation prerequisites.
+        awaitStableFocus()
+    }
+
+    private fun awaitStableFocus() {
+        val deadline = SystemClock.elapsedRealtime() + 5_000
+        var previous: String? = null
+        var stableSince = 0L
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val focused = device.findObject(By.focused(true))
+            val snapshot = focused?.let { "${it.visibleBounds}|${it.text}|${it.contentDescription}" }
+            val now = SystemClock.elapsedRealtime()
+            if (snapshot != null && snapshot == previous) {
+                if (now - stableSince >= 250) return
+            } else {
+                previous = snapshot
+                stableSince = now
+            }
+            SystemClock.sleep(100)
+        }
+        throw AssertionError("Начальный D-pad фокус не установился за 5 секунд")
     }
 }
