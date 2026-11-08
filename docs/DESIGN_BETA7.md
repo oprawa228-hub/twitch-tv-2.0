@@ -24,13 +24,19 @@
 - Настоящий Twitch на диагностическом beta.7: overlay→theater→OFF→overlay с корректными подписями обеих кнопок и сохранением паузы; исходный театр восстановлен (`beta7-native-modes.log`). В панели draft overlay→один Back возвращает theater и паузу (`beta7-native-player-draft.log`). Нативные кадры находятся локально в `evidence/android/beta7-hud-*.png` и `beta7-player-*.png`.
 - Каталог/категории/удержание OK/возврат и аккаунт проверены D-pad тестами; визуально просмотрен каталог с реальными изображениями (`beta7-catalog-ready.png`). Нижний ряд больше не упирается в край. Raw чат/иерархии не публикуются.
 
-## Кандидат и доставка
+## Доставка
 
 Подписанный APK: `dist/v0.1.0-beta.7/Twitch20-0.1.0-beta.7.apk`, package `com.oprawa.twitch20`, code9, API23+, 2 750 382 байта. SHA-256 `b7dd452c6de8ab2e015e894fb54dc45b6bb2ac28e4588579e025de005f77ff37`; прежний сертификат `f81f51fd47d318aaf79f1fe3c81159fe6eca405f881f4f0b19d097d1c4b006f7`. Stage проверяет package/certificate и запрещает замену артефакта этой версии.
 
 На primary установлен точный подписанный APK (base APK SHA совпал), аккаунт oprawa сохранён; это проверка совместимости установки, не OTA. На нём `tools/qa_chat_profiles.py` через D-pad задал оверлею20/35%, кинотеатру14/85%, сохранил, завершил процесс и заново открыл приложение: обе пары восстановились, активным остался только оверлей. Доказательства: `beta7-release-profiles-before.json`, `beta7-release-profiles-result.json`, `beta7-installed-primary.json`, кадры `beta7-release-profiles-*-saved.png`.
 
-Статус публикации и OTA дополняется после фактической проверки.
+[Beta.7 опубликована](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/tag/v0.1.0-beta.7), source/tag `1fcef8e5fc692653b0a81ffc9ac9e42a0a2a6dc3`. Перед перемещением main все14 изменённых файлов коммита сравнены с локальными исходниками. Скачанные публичные APK/update.json/SHA256SUMS совпали со staged файлами; тестовый feed обновлён commit `b74a049d65877c15453b971e563ee9e4e385faca`. Обычный raw URL без cache-busting отдаёт code9 (`beta7-public-verified.json`, `beta7-normal-feed.json`).
+
+**Настоящее OTA8→9 на secondary PASS.** Перед ним диагностический code9 заменён точным публичным beta.6/code8, подтверждён SHA459ff94… (`beta7-ota-base-verified.json`). Для проверки именно legacy migration из тестового settings-файла убраны только пять новых ключей профилей/режима; старые значения theater16/65% сохранены, аккаунт/история не очищались (`beta7-ota-seed.json`). Затем обычные «Проверить»→«Скачать»→проверка файла приложением→Android INSTALL→OPEN. Установлен code9/b7dd452c…, installer `com.google.android.packageinstaller` (`beta7-ota-installed.json`).
+
+После OTA: театр включён, оверлей выключен; оба независимых профиля получили legacy16/65% (`beta7-ota-settings-verified.json`, `beta7-ota-settings.png`). Запись Caedrel сохранила3:25:36; после открытия и паузы3:25:39 — три секунды воспроизведения, длительность продолжающейся записи выросла (`beta7-ota-history-before/after.json`). На точном обновлённом APK повторены live overlay→theater→OFF→theater, сохранение паузы и draft overlay→Back→прежний theater (`beta7-ota-native-modes.json`, `beta7-ota-native.log`). Визуально проверены реальные каталог и постеры категорий (`beta7-final-catalog.png`, `beta7-final-categories.png`).
+
+Тестовые профили primary возвращены через UI к исходным18/65% обоих режимов, активен оверлей (`beta7-release-profiles.log`). Secondary возвращён к исходному theater16/65%. Оба эмулятора оставлены на release9, без активного воспроизведения.
 
 ## Границы
 

@@ -1,6 +1,8 @@
 # Проверки Twitch 2.0
 
-Доставлена **beta.6 / code8**: [121 JVM PASS, 9 Android PASS на двух эмуляторах, native release и OTA7→8](BACKEND_BETA6.md). Точный APK459ff94…; история2:59 и настройки сохранились. Конфликт медиасессий исправлен; software decoder4003 отдельно воспроизведён минимальным Media3 comparator.
+Доставлена **beta.7 / code9**: [131 JVM, 16 различных Android-сценариев по отдельным прогонам, независимые профили и OTA8→9](DESIGN_BETA7.md). Точный APK b7dd452c…; режим кинотеатра16/65% мигрировал в раздельные профили, позиция записи3:25:36→3:25:39 сохранена. Первоначальный запуск account-теста на guest имел FAIL по precondition; повтор на primary PASS.
+
+Предыдущая **beta.6 / code8**: [121 JVM PASS, 9 Android PASS на двух эмуляторах, native release и OTA7→8](BACKEND_BETA6.md). Точный APK459ff94…; история2:59 и настройки сохранились. Конфликт медиасессий исправлен; software decoder4003 отдельно воспроизведён минимальным Media3 comparator.
 
 Предыдущая **beta.5 / code7**: [121 JVM PASS, 8 Android PASS,22 открытия, отдельный30minPASS и OTA6→7](BACKEND_FINAL.md). Успешный live-прогон и три неудачных прогона другого канала разделены в [PERFORMANCE.md](PERFORMANCE.md).
 

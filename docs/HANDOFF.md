@@ -1,6 +1,14 @@
 # Передача результата Twitch 2.0
 
-## Актуальная доставка — beta.6/code8
+## Актуальная доставка — beta.7/code9
+
+[Подписанный APK](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.7/Twitch20-0.1.0-beta.7.apk), 2 750 382 байта, SHA-256 `b7dd452c6de8ab2e015e894fb54dc45b6bb2ac28e4588579e025de005f77ff37`, прежний сертификат. Source/tag `1fcef8e5fc692653b0a81ffc9ac9e42a0a2a6dc3`; тестовый feed code9, commit `b74a049d65877c15453b971e563ee9e4e385faca`. Public/staged/installed совпали. [Отчёт](DESIGN_BETA7.md).
+
+Исправлен пользовательский конфликт: OFF/OVERLAY/THEATER, отдельные размер/фон и единый редактор; изменение неактивного профиля не включает режим. Первичная доработка каталога и читаемости, не окончательный дизайн. 131 JVM и16 различных Android-сценариев по отдельным прогонам PASS. На exact release профили20/35% и14/85% сохранились после завершения процесса; тестовые изменения возвращены к исходным18/65%. OTA8→9 наsecondary мигрировал legacy theater16/65% и сохранил VOD3:25:36→3:25:39. Primary сохраняет аккаунт oprawa.
+
+Следующее: оценка первого визуального прохода, дальнейшая проработка примеров/переходов и остальных экранов по PLAN. Physical ARM TV и прежний decoder4003 остаются границами проверки.
+
+## Предыдущая доставка — beta.6/code8
 
 **Функциональная доработка доставлена; дизайн остаётся следующим отдельным этапом.** [APK](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.6/Twitch20-0.1.0-beta.6.apk),2 733 993байта,SHA-256`459ff94be9cb8d356620c3da0e0020d17ca66c2b519c80c22c18b5e5c668ea6c`. Source/tag`d7180982a719bda440b745bbca1d917bfc6329e7`. Тестовыйfeedcode8, public/staged/installed совпали. Последние121JVM PASS и9Android PASS на двухAVD (8guest/59.072с +1auth/22.29с).
 
