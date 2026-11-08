@@ -9,6 +9,7 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
+import com.oprawa.twitch20.settings.SettingsStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -45,7 +46,7 @@ class TvNavigationTest {
         assertTrue(device.wait(Until.hasObject(By.text("Прямые эфиры")), 8_000))
         awaitCatalogSettled()
         openSettings()
-        assertNotNull(device.findObject(By.descStartsWith("Чат: ")))
+        assertNotNull(device.findObject(By.descStartsWith("Чат поверх видео: ")))
         device.pressBack()
         assertTrue(device.wait(Until.gone(By.text("Предпросмотр")), 5_000))
         assertTrue(device.hasObject(By.text("Прямые эфиры")))
@@ -55,8 +56,9 @@ class TvNavigationTest {
     @Test fun previewCancelDoesNotSaveAndExplicitSaveSurvivesReopening() {
         openSettings()
         val original = chatDescription()
-        assertTrue(original == "Чат: Показан" || original == "Чат: Скрыт")
-        val changed = if (original == "Чат: Показан") "Чат: Скрыт" else "Чат: Показан"
+        val originalTheater = device.hasObject(By.desc("Кинотеатр: Включён"))
+        assertTrue(original == "Чат поверх видео: Включён" || original == "Чат поверх видео: Выключен")
+        val changed = if (original == "Чат поверх видео: Включён") "Чат поверх видео: Выключен" else "Чат поверх видео: Включён"
         // First setting owns focus on entry. A real remote arrow changes only its draft.
         focusDescription(original)
         device.pressDPadRight()
@@ -82,6 +84,10 @@ class TvNavigationTest {
             if (current != original) {
                 focusDescription(current)
                 device.pressDPadRight()
+            }
+            if (originalTheater && device.hasObject(By.desc("Кинотеатр: Выключен"))) {
+                focusDescription("Кинотеатр: Выключен")
+                device.pressDPadCenter()
             }
             focusText("Сохранить")
             device.pressDPadCenter()
@@ -111,13 +117,58 @@ class TvNavigationTest {
         assertEquals("Back сдвинул строку каталога", originalTop, restored.visibleBounds.top)
     }
 
+    @Test fun chatModesAreExclusiveAndInactiveProfileEditingDoesNotEnableIt() {
+        val original = SettingsStore(instrumentation.targetContext).state.value
+        openSettings()
+        // Start from either persisted mode, and explicitly select overlay.
+        if (chatDescription().endsWith("Выключен")) {
+            focusDescription("Чат поверх видео: Выключен")
+            device.pressDPadCenter()
+        }
+        assertTrue(device.hasObject(By.desc("Чат поверх видео: Включён")))
+        assertTrue(device.hasObject(By.desc("Кинотеатр: Выключен")))
+        focusDescription("Кинотеатр: Выключен")
+        device.pressDPadCenter()
+        assertTrue(device.hasObject(By.desc("Кинотеатр: Включён")))
+        assertTrue(device.hasObject(By.desc("Чат поверх видео: Выключен")))
+        device.pressDPadCenter()
+        assertTrue(device.hasObject(By.desc("Кинотеатр: Выключен")))
+        assertTrue(device.hasObject(By.desc("Чат поверх видео: Выключен")))
+
+        val oldSize = original.overlayStyle.textSizeSp
+        focusDescription("Чат — размер текста: $oldSize")
+        val newSize = if (oldSize == 24) oldSize - 2 else oldSize + 2
+        if (oldSize == 24) device.pressDPadLeft() else device.pressDPadRight()
+        assertTrue(device.hasObject(By.desc("Чат — размер текста: $newSize")))
+        assertTrue(device.hasObject(By.text("Чат поверх видео · только пример")))
+        assertTrue(device.hasObject(By.text("При сохранении: Без чата")))
+        assertTrue(device.hasObject(By.desc("Чат поверх видео: Выключен")))
+        assertTrue(device.hasObject(By.desc("Кинотеатр: Выключен")))
+        focusDescription("Кинотеатр — размер текста: ${original.theaterStyle.textSizeSp}")
+        assertTrue(device.hasObject(By.text("Кинотеатр · только пример")))
+        assertTrue(device.hasObject(By.text("При сохранении: Без чата")))
+        device.pressBack()
+        assertTrue(device.wait(Until.gone(By.text("Предпросмотр")), 5_000))
+        assertEquals("Отмена сохранила режим или чужой профиль", original,
+            SettingsStore(instrumentation.targetContext).state.value)
+    }
+
     @Test fun nestedUpdatesPreserveDraftUntilSettingsCancel() {
+        val saved = SettingsStore(instrumentation.targetContext).state.value
         openSettings()
         val original = chatDescription()
-        val changed = if (original == "Чат: Показан") "Чат: Скрыт" else "Чат: Показан"
+        val changed = if (original == "Чат поверх видео: Включён") "Чат поверх видео: Выключен" else "Чат поверх видео: Включён"
         focusDescription(original)
         device.pressDPadRight()
         assertTrue(device.wait(Until.hasObject(By.desc(changed)), 3_000))
+        val overlaySize = saved.overlayStyle.textSizeSp
+        val theaterSize = saved.theaterStyle.textSizeSp
+        val overlayDraft = if (overlaySize == 24) overlaySize - 2 else overlaySize + 2
+        val theaterDraft = if (theaterSize == 24) theaterSize - 2 else theaterSize + 2
+        focusDescription("Чат — размер текста: $overlaySize")
+        if (overlaySize == 24) device.pressDPadLeft() else device.pressDPadRight()
+        focusDescription("Кинотеатр — размер текста: $theaterSize")
+        if (theaterSize == 24) device.pressDPadLeft() else device.pressDPadRight()
         focusText("Проверить обновления")
         device.pressDPadCenter()
         assertTrue("Не открылся вложенный экран обновлений", device.wait(Until.hasObject(By.text("Twitch 2.0")), 5_000))
@@ -126,10 +177,14 @@ class TvNavigationTest {
         assertTrue(device.wait(Until.hasObject(By.text("Предпросмотр")), 5_000))
         assertEquals("Вложенный экран потерял черновик", changed, chatDescription())
         assertTrue(device.hasObject(By.text("Есть несохранённые изменения")))
+        focusDescription("Чат — размер текста: $overlayDraft")
+        focusDescription("Кинотеатр — размер текста: $theaterDraft")
         device.pressBack()
         assertTrue(device.wait(Until.gone(By.text("Предпросмотр")), 5_000))
         openSettings()
         assertEquals("Отмена после вложенного экрана сохранила черновик", original, chatDescription())
+        assertEquals("Отмена сохранила настройки профилей", saved,
+            SettingsStore(instrumentation.targetContext).state.value)
         device.pressBack()
     }
 
@@ -188,11 +243,11 @@ class TvNavigationTest {
         focusText("Настройки")
         device.pressDPadCenter()
         assertTrue("Настройки не открыли пример", device.wait(Until.hasObject(By.text("Предпросмотр")), 5_000))
-        assertTrue(device.wait(Until.hasObject(By.descStartsWith("Чат: ")), 3_000))
+        assertTrue(device.wait(Until.hasObject(By.descStartsWith("Чат поверх видео: ")), 3_000))
         awaitStableFocus()
     }
 
-    private fun chatDescription(): String = device.findObject(By.descStartsWith("Чат: "))?.contentDescription
+    private fun chatDescription(): String = device.findObject(By.descStartsWith("Чат поверх видео: "))?.contentDescription
         ?: throw AssertionError("Не найден параметр чата")
 
     private fun focusText(text: String) = focusTarget("text=$text") { device.findObject(By.text(text)) }
@@ -200,8 +255,14 @@ class TvNavigationTest {
 
     /** Move toward observed node bounds; every step is based on current focus and target geometry. */
     private fun focusTarget(label: String, find: () -> UiObject2?) {
-        repeat(24) {
-            val target = find() ?: throw AssertionError("Не найден элемент $label")
+        repeat(48) { attempt ->
+            val target = find()
+            if (target == null) {
+                // A settings profile can be below the viewport; traverse actual focusable rows.
+                if (attempt < 24) device.pressDPadDown() else device.pressDPadUp()
+                device.waitForIdle(500)
+                return@repeat
+            }
             if (targetOrAncestorHasFocus(target)) return
             val focused = device.wait(Until.findObject(By.focused(true)), 2_000)
                 ?: run {

@@ -7,11 +7,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,6 +37,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
@@ -46,12 +47,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.oprawa.twitch20.data.Category
 import com.oprawa.twitch20.data.Channel
 import com.oprawa.twitch20.data.Video
+
+private enum class CatalogKind { Channel, Category, Video }
 
 private data class CatalogEntry(
     val key: String,
@@ -62,6 +66,8 @@ private data class CatalogEntry(
     val badge: String,
     val open: () -> Unit,
     val details: (() -> Unit)? = null,
+    val kind: CatalogKind = CatalogKind.Channel,
+    val typeLabel: String = "",
 )
 
 /** Production content only. The host owns navigation and stores selectedKey per route. */
@@ -96,12 +102,13 @@ fun CatalogScreen(
         }
         categories.forEach { category ->
             add(CatalogEntry("category:${category.id}", category.name, "", "Категория",
-                category.imageUrl, "", { onCategory(category) }))
+                category.imageUrl, "", { onCategory(category) }, kind = CatalogKind.Category))
         }
         videos.forEach { video ->
             add(CatalogEntry("video:${video.id}", video.title, video.channelLogin,
-                "${video.kind}", video.imageUrl, formatDuration(video.durationSeconds.toLong()),
-                { onVideo(video) }))
+                "", video.imageUrl, formatDuration(video.durationSeconds.toLong()),
+                { onVideo(video) }, kind = CatalogKind.Video,
+                typeLabel = if (video.kind == "clip") "Клип" else "Запись"))
         }
     }
     val keys = entries.map { it.key }
@@ -110,6 +117,8 @@ fun CatalogScreen(
     keys.forEach { requesters.getOrPut(it) { FocusRequester() } }
     val emptyRequester = remember { FocusRequester() }
     var restored by remember(revision) { mutableStateOf(false) }
+    var focusedEntryKey by remember { mutableStateOf<String?>(null) }
+    val showChannelHint = entries.any { it.key == focusedEntryKey && it.details != null }
 
     LaunchedEffect(selectedKey, entries.size, hasMore, busy, error) {
         if (hasMore && !busy && error == null && entries.isNotEmpty() &&
@@ -137,15 +146,19 @@ fun CatalogScreen(
     }
 
     Column(Modifier.fillMaxSize().background(TvColors.Background).padding(horizontal = 24.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 18.dp, end = 84.dp),
+        Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 4.dp, end = 84.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically) {
             Text(title, fontSize = 25.sp, fontWeight = FontWeight.Bold,
                 color = TvColors.Text, modifier = Modifier.weight(1f), maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
             if (busy) Text("Обновление…", fontSize = 12.sp, color = TvColors.Muted)
-            else if (entries.isNotEmpty()) TvAction("Обновить", onRefresh)
+            else if (entries.isNotEmpty()) TvAction("Обновить", onRefresh, Modifier.height(36.dp))
         }
+        // Reserve the hint's line even when the rail/header owns focus: the grid never jumps.
+        Text(if (showChannelHint) "Удерживайте OK — открыть канал" else "",
+            color = TvColors.Muted, fontSize = 11.sp, lineHeight = 14.sp,
+            modifier = Modifier.fillMaxWidth().height(20.dp).padding(start = 4.dp), maxLines = 1)
         if (error != null && entries.isNotEmpty()) {
             Row(Modifier.fillMaxWidth().padding(bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -167,12 +180,27 @@ fun CatalogScreen(
                 }
             }
         } else {
-            LazyVerticalGrid(columns = GridCells.Fixed(3), state = state,
-                contentPadding = PaddingValues(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 24.dp),
+            BoxWithConstraints(Modifier.weight(1f).padding(bottom = 20.dp)) {
+            val posterGrid = entries.all { it.kind == CatalogKind.Category }
+            val channelGrid = entries.all { it.kind == CatalogKind.Channel }
+            val columns = if (posterGrid) 5 else 3
+            val thumbnailWidth = (maxWidth - 8.dp - 16.dp * (columns - 1)) / columns - 6.dp
+            val naturalImageHeight = thumbnailWidth * if (posterGrid) 4f / 3f else 9f / 16f
+            val channelMetadataHeight = (62f * LocalDensity.current.fontScale).dp + 14.dp
+            // Two complete channel rows on the main TV canvas; denser search pages may scroll.
+            // Fit the whole 16:9 image if this trims a few dp from the available image slot.
+            val imageHeight = if (channelGrid && maxHeight >= 400.dp)
+                minOf(naturalImageHeight, ((maxHeight - 24.dp) / 2 - channelMetadataHeight).coerceAtLeast(104.dp))
+                else naturalImageHeight
+            LazyVerticalGrid(columns = GridCells.Fixed(columns), state = state,
+                contentPadding = PaddingValues(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp), modifier = Modifier.fillMaxSize()) {
+                verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
                 items(entries, key = { it.key }) { entry ->
-                    CatalogCard(entry, requesters.getValue(entry.key), onFocused)
+                    CatalogCard(entry, imageHeight, requesters.getValue(entry.key), onFocused) { hasFocus ->
+                        if (hasFocus) focusedEntryKey = entry.key
+                        else if (focusedEntryKey == entry.key) focusedEntryKey = null
+                    }
                 }
                 item(key = "catalog-footer", span = { GridItemSpan(maxLineSpan) }) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -195,12 +223,14 @@ fun CatalogScreen(
                     }
                 }
             }
+            }
         }
     }
 }
 
 @Composable
-private fun CatalogCard(entry: CatalogEntry, requester: FocusRequester, onFocused: (String) -> Unit) {
+private fun CatalogCard(entry: CatalogEntry, imageHeight: Dp, requester: FocusRequester,
+    onFocused: (String) -> Unit, onFocusState: (Boolean) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     var longActivated by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(6.dp)
@@ -208,6 +238,7 @@ private fun CatalogCard(entry: CatalogEntry, requester: FocusRequester, onFocuse
         .focusRequester(requester)
         .onFocusChanged {
             focused = it.isFocused
+            onFocusState(it.isFocused)
             if (it.isFocused) onFocused(entry.key) else longActivated = false
         }
         .onPreviewKeyEvent { event ->
@@ -231,7 +262,7 @@ private fun CatalogCard(entry: CatalogEntry, requester: FocusRequester, onFocuse
         }
         .semantics {
             role = Role.Button
-            contentDescription = listOf(entry.name, entry.description, entry.category, entry.badge)
+            contentDescription = listOf(entry.name, entry.description, entry.category, entry.typeLabel, entry.badge)
                 .filter { it.isNotBlank() }.joinToString(", ")
             onClick { entry.open(); true }
             if (entry.details != null) onLongClick("Открыть канал") { entry.details.invoke(); true }
@@ -240,26 +271,43 @@ private fun CatalogCard(entry: CatalogEntry, requester: FocusRequester, onFocuse
         .background(if (focused) TvColors.Raised else TvColors.Background, shape)
         .border(2.dp, if (focused) TvColors.Focus else TvColors.Background, shape)
         .padding(3.dp)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(4.dp))
+        Box(Modifier.fillMaxWidth().height(imageHeight).clip(RoundedCornerShape(4.dp))
             .background(TvColors.Surface)) {
             // A real image may be unavailable; keep a quiet stable slot, never a fake stream image.
             Text(entry.name.take(2).uppercase(), modifier = Modifier.align(Alignment.Center),
                 fontSize = 28.sp, color = TvColors.Muted)
             AsyncImage(model = entry.image, contentDescription = null,
-                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            if (entry.typeLabel.isNotBlank()) Text(entry.typeLabel,
+                Modifier.align(Alignment.TopStart).padding(6.dp)
+                    .background(TvColors.Background.copy(alpha = .9f), RoundedCornerShape(3.dp))
+                    .padding(horizontal = 5.dp, vertical = 2.dp),
+                color = TvColors.Text, fontSize = 11.sp, maxLines = 1)
             if (entry.badge.isNotBlank()) Text(entry.badge,
-                Modifier.align(Alignment.BottomStart).padding(6.dp)
+                Modifier.align(if (entry.kind == CatalogKind.Video) Alignment.BottomEnd else Alignment.BottomStart).padding(6.dp)
                     .background(TvColors.Background.copy(alpha = .9f), RoundedCornerShape(3.dp))
                     .padding(horizontal = 5.dp, vertical = 2.dp),
                 color = TvColors.Text, fontSize = 11.sp, maxLines = 1)
         }
         Column(Modifier.padding(horizontal = 5.dp, vertical = 4.dp)) {
-            Text(entry.name, color = TvColors.Text, fontSize = 15.sp,
-                fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(entry.description, color = TvColors.Text, fontSize = 12.sp,
-                lineHeight = 15.sp, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(entry.category, color = TvColors.Muted, fontSize = 11.sp,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            when (entry.kind) {
+                CatalogKind.Channel -> {
+                    Text(entry.name, color = TvColors.Text, fontSize = 15.sp, lineHeight = 18.sp,
+                        fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(entry.description, color = TvColors.Text, fontSize = 12.sp,
+                        lineHeight = 15.sp, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(entry.category, color = TvColors.Muted, fontSize = 11.sp, lineHeight = 14.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                CatalogKind.Video -> {
+                    Text(entry.name, color = TvColors.Text, fontSize = 14.sp, lineHeight = 17.sp,
+                        fontWeight = FontWeight.Bold, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(entry.description, color = TvColors.Muted, fontSize = 12.sp, lineHeight = 16.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                CatalogKind.Category -> Text(entry.name, color = TvColors.Text, fontSize = 14.sp, lineHeight = 17.sp,
+                    fontWeight = FontWeight.Bold, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }

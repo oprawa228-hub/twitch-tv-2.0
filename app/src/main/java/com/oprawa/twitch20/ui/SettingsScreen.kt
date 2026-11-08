@@ -59,15 +59,18 @@ import com.oprawa.twitch20.chat.ChatMessage
 import com.oprawa.twitch20.settings.AppSettings
 import com.oprawa.twitch20.settings.ChatMode
 import com.oprawa.twitch20.settings.ChatPosition
+import com.oprawa.twitch20.settings.ChatStyle
 import kotlinx.coroutines.delay
 
 private val SettingsDraftSaver = listSaver<AppSettings, Any>(
-    save = { listOf(it.chatEnabled, it.chatMode.name, it.chatTextSizeSp, it.chatOpacity,
-        it.chatPosition.name, it.showClock, it.animationsEnabled) },
-    restore = { AppSettings(chatEnabled = it[0] as Boolean, chatMode = ChatMode.valueOf(it[1] as String),
-        chatTextSizeSp = it[2] as Int, chatOpacity = it[3] as Float,
-        chatPosition = ChatPosition.valueOf(it[4] as String), showClock = it[5] as Boolean,
-        animationsEnabled = it[6] as Boolean) },
+    save = { listOf(it.chatMode.name, it.overlayStyle.textSizeSp, it.overlayStyle.opacity,
+        it.theaterStyle.textSizeSp, it.theaterStyle.opacity, it.chatPosition.name,
+        it.showClock, it.animationsEnabled) },
+    restore = { AppSettings(chatMode = ChatMode.valueOf(it[0] as String),
+        overlayStyle = ChatStyle(it[1] as Int, it[2] as Float),
+        theaterStyle = ChatStyle(it[3] as Int, it[4] as Float),
+        chatPosition = ChatPosition.valueOf(it[5] as String), showClock = it[6] as Boolean,
+        animationsEnabled = it[7] as Boolean) },
 )
 
 @Composable
@@ -78,6 +81,7 @@ fun SettingsScreen(
     onCheckUpdates: () -> Unit,
 ) {
     var draft by rememberSaveable(settings, stateSaver = SettingsDraftSaver) { mutableStateOf(settings) }
+    var previewMode by remember { mutableStateOf<ChatMode?>(null) }
     val first = remember { FocusRequester() }
     BackHandler { onBack() }
     LaunchedEffect(Unit) { first.requestFocus() }
@@ -89,21 +93,7 @@ fun SettingsScreen(
                 color = TvColors.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp, bottom = 14.dp))
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                SettingChoice("Чат", if (draft.chatEnabled) "Показан" else "Скрыт",
-                    Modifier.focusRequester(first)) { draft = draft.copy(chatEnabled = !draft.chatEnabled) }
-                SettingChoice("Режим", if (draft.chatMode == ChatMode.OVERLAY) "Поверх видео" else "Кинотеатр") {
-                    draft = draft.copy(chatMode = if (draft.chatMode == ChatMode.OVERLAY) ChatMode.THEATER else ChatMode.OVERLAY)
-                }
-                SettingChoice("Размер текста", "${draft.chatTextSizeSp}") { step ->
-                    draft = draft.copy(chatTextSizeSp = (draft.chatTextSizeSp + step * 2).coerceIn(12, 24))
-                }
-                SettingChoice("Фон чата", "${(draft.chatOpacity * 100).toInt()}%") { step ->
-                    draft = draft.copy(chatOpacity = (draft.chatOpacity + step * .1f).coerceIn(0f, 1f))
-                }
-                if (draft.chatMode == ChatMode.OVERLAY) SettingChoice("Положение", positionLabel(draft.chatPosition)) { step ->
-                    val positions = ChatPosition.entries
-                    draft = draft.copy(chatPosition = positions[(draft.chatPosition.ordinal + step + positions.size) % positions.size])
-                }
+                ChatSettingsControls(draft, { draft = it }, first) { previewMode = it }
                 SettingChoice("Часы", if (draft.showClock) "Показаны" else "Скрыты") {
                     draft = draft.copy(showClock = !draft.showClock)
                 }
@@ -117,26 +107,32 @@ fun SettingsScreen(
                 TvAction("Отмена", onBack)
             }
         }
-        Column(Modifier.weight(.57f).padding(top = 44.dp)) {
+        Column(Modifier.weight(.57f).padding(top = 24.dp)) {
             Text("Предпросмотр", color = TvColors.Text, fontSize = 21.sp, fontWeight = FontWeight.Bold)
             Text("Пример — настройки применятся после сохранения", color = TvColors.Muted,
                 fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
-            SettingsPreview(draft)
+            val shownMode = previewMode ?: draft.chatMode
+            Text(chatModeLabel(shownMode) + if (shownMode != draft.chatMode) " · только пример" else "",
+                color = TvColors.Link, fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp))
+            SettingsPreview(draft.copy(chatMode = shownMode))
+            Text("При сохранении: ${chatModeLabel(draft.chatMode)}", color = TvColors.Muted,
+                fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
             Text("← → Изменить    OK Следующее значение\nНазад — отменить изменения",
                 color = TvColors.Muted, fontSize = 12.sp, lineHeight = 19.sp,
                 modifier = Modifier.padding(top = 14.dp))
             Spacer(Modifier.weight(1f))
-            Text("Twitch 2.0 · ${BuildConfig.VERSION_NAME}\nСамостоятельный клиент для Android TV",
+            Text("Twitch 2.0 · ${BuildConfig.VERSION_NAME}",
                 color = TvColors.Muted, fontSize = 11.sp, lineHeight = 16.sp)
         }
     }
 }
 
 @Composable
-private fun SettingChoice(label: String, value: String, modifier: Modifier = Modifier, change: (Int) -> Unit) {
+internal fun SettingChoice(label: String, value: String, modifier: Modifier = Modifier,
+    accessibilityLabel: String = label, onFocused: () -> Unit = {}, change: (Int) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Row(modifier.fillMaxWidth().height(43.dp)
-        .onFocusChanged { focused = it.isFocused }
+        .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocused() }
         .onPreviewKeyEvent { event ->
             val key = event.nativeKeyEvent
             when (key.keyCode) {
@@ -151,12 +147,12 @@ private fun SettingChoice(label: String, value: String, modifier: Modifier = Mod
                 else -> false
             }
         }
-        .semantics { role = Role.Button; contentDescription = "$label: $value"; onClick { change(1); true } }
+        .semantics { role = Role.Button; contentDescription = "$accessibilityLabel: $value"; onClick { change(1); true } }
         .focusable()
         .background(if (focused) TvColors.Focus else TvColors.Background, RoundedCornerShape(6.dp))
         .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(label, Modifier.weight(1f), fontSize = 16.sp,
+        Text(label, Modifier.weight(1f), fontSize = 14.sp,
             color = if (focused) TvColors.Background else TvColors.Text)
         Text(value, fontSize = 13.sp, color = if (focused) TvColors.Background else TvColors.Muted)
     }
@@ -220,11 +216,4 @@ private fun SettingsPreview(settings: AppSettings) {
                     .background(TvColors.Accent, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
         }
     }
-}
-
-private fun positionLabel(position: ChatPosition) = when (position) {
-    ChatPosition.TOP_LEFT -> "Слева сверху"
-    ChatPosition.TOP_RIGHT -> "Справа сверху"
-    ChatPosition.BOTTOM_LEFT -> "Слева снизу"
-    ChatPosition.BOTTOM_RIGHT -> "Справа снизу"
 }

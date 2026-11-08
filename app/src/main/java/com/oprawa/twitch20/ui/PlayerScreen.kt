@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -199,7 +201,7 @@ fun PlayerScreen(
                 if (panelOpen) {
                     Column(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 8.dp)) {
                         Text(title, color = PlayerText, fontSize = 19.sp, fontWeight = FontWeight.SemiBold,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(subtitle, color = PlayerMuted, fontSize = 13.sp, maxLines = 2,
                             overflow = TextOverflow.Ellipsis)
                     }
@@ -255,7 +257,7 @@ fun PlayerScreen(
                         Text(if (state.isLive) "LIVE" else "ЗАПИСЬ", color = PlayerFocus,
                             fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         Text(title, color = PlayerText, fontWeight = FontWeight.SemiBold,
-                            fontSize = 19.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            fontSize = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f))
                         if (state.activeQuality.isNotEmpty()) Text(state.activeQuality,
                             color = PlayerMuted, fontSize = 12.sp)
@@ -275,13 +277,12 @@ fun PlayerScreen(
                         }
                         PlayerAction("Качество", Modifier.focusRequester(qualityFocus)) { qualityOpen = true }
                         if (chatContent != null) {
-                            PlayerAction(if (settings.chatEnabled) "Чат: вкл" else "Чат: выкл",
+                            PlayerAction(if (settings.overlayEnabled) "Чат: вкл" else "Чат: выкл",
                                 Modifier.focusRequester(chatFocus), onLongClick = { openChatSettings(true) }) {
-                                onSettingsChange(settings.copy(chatEnabled = !settings.chatEnabled))
+                                onSettingsChange(settings.toggleChat(ChatMode.OVERLAY))
                             }
-                            PlayerAction(if (theater) "Кинотеатр: вкл" else "Кинотеатр") {
-                                onSettingsChange(settings.copy(chatEnabled = true,
-                                    chatMode = if (theater) ChatMode.OVERLAY else ChatMode.THEATER))
+                            PlayerAction(if (settings.theaterEnabled) "Кинотеатр: вкл" else "Кинотеатр: выкл") {
+                                onSettingsChange(settings.toggleChat(ChatMode.THEATER))
                             }
                         }
                         PlayerAction("Настройки", Modifier.focusRequester(settingsFocus)) { openChatSettings(false) }
@@ -327,44 +328,13 @@ fun PlayerScreen(
             Column(Modifier.width(300.dp).fillMaxHeight().background(PlayerPanel).padding(22.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Настройки просмотра", color = PlayerText, fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
-                Text("Изменения видны сразу. Сохраните результат или отмените кнопкой Назад.",
+                Text("Параметры каждого режима сохраняются отдельно. Назад — отменить изменения.",
                     color = PlayerMuted, fontSize = 12.sp)
-                LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item {
-                        PlayerAction(if (draftSettings.chatEnabled) "Чат: включён" else "Чат: выключен",
-                            Modifier.fillMaxWidth().focusRequester(draftFocus)) {
-                            draftSettings = draftSettings.copy(chatEnabled = !draftSettings.chatEnabled)
-                        }
-                    }
-                    item {
-                        PlayerAction(if (draftSettings.chatMode == ChatMode.OVERLAY) "Режим: поверх видео" else "Режим: отдельная область",
-                            Modifier.fillMaxWidth()) {
-                            draftSettings = draftSettings.copy(chatMode = if (draftSettings.chatMode == ChatMode.OVERLAY)
-                                ChatMode.THEATER else ChatMode.OVERLAY)
-                        }
-                    }
-                    item {
-                        PlayerAction("Текст: ${draftSettings.chatTextSizeSp}", Modifier.fillMaxWidth()) {
-                            draftSettings = draftSettings.copy(chatTextSizeSp =
-                                if (draftSettings.chatTextSizeSp >= 24) 12 else draftSettings.chatTextSizeSp + 2)
-                        }
-                    }
-                    item {
-                        PlayerAction("Фон: ${(draftSettings.chatOpacity * 100).toInt()}%", Modifier.fillMaxWidth()) {
-                            draftSettings = draftSettings.copy(chatOpacity =
-                                if (draftSettings.chatOpacity >= 1f) 0f else (draftSettings.chatOpacity + .1f).coerceAtMost(1f))
-                        }
-                    }
-                    item {
-                        PlayerAction("Положение: ${chatPositionLabel(draftSettings.chatPosition)}", Modifier.fillMaxWidth()) {
-                            val positions = ChatPosition.entries
-                            draftSettings = draftSettings.copy(chatPosition = positions[(draftSettings.chatPosition.ordinal + 1) % positions.size])
-                        }
-                    }
-                    item {
-                        PlayerAction(if (draftSettings.showClock) "Часы: включены" else "Часы: выключены", Modifier.fillMaxWidth()) {
-                            draftSettings = draftSettings.copy(showClock = !draftSettings.showClock)
-                        }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ChatSettingsControls(draftSettings, { draftSettings = it }, draftFocus)
+                    SettingChoice("Часы", if (draftSettings.showClock) "Показаны" else "Скрыты") {
+                        draftSettings = draftSettings.copy(showClock = !draftSettings.showClock)
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -389,13 +359,6 @@ fun PlayerScreen(
         }
         wasSettingsOpen = chatSettingsOpen
     }
-}
-
-private fun chatPositionLabel(position: ChatPosition) = when (position) {
-    ChatPosition.TOP_LEFT -> "слева сверху"
-    ChatPosition.TOP_RIGHT -> "справа сверху"
-    ChatPosition.BOTTOM_LEFT -> "слева снизу"
-    ChatPosition.BOTTOM_RIGHT -> "справа снизу"
 }
 
 @Composable

@@ -2,6 +2,8 @@
 
 Установленные навыки использованы по текущим файлам; новые пакеты не потребовались. SHA-256 фиксирует точную локальную ревизию. Правила задач и разрешения пользователя имеют приоритет.
 
+Beta.7: android-tv-settings-preview (`C:/Users/Opraw/.codex/skills/android-tv-settings-preview/SKILL.md`, SHA-256 `32D58D4E10118A813BC571BAF57AB4859FC2958CC1E631104DE2161F949D18E2`) — разделение примера/активного режима, общий редактор и native проверка профилей. Refero — сохранённые пользовательские ориентиры и реальный рендер каталога; systematic-debugging/TDD — RED миграции; remote-qa — быстрые кнопки/Back/save/restart. Новые навыки не устанавливались.
+
 |Навык|Источник/путь|SHA-256|
 |---|---|---|
 |refero-design|C:\Users\Opraw\.codex\skills\refero-design\SKILL.md|4A4A7A0B72A2FA0A454903DEBE6E872ADA79A724CB452FE2113D266C2F0C6978|
