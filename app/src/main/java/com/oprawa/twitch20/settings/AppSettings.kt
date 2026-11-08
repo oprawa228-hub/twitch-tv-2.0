@@ -2,6 +2,9 @@ package com.oprawa.twitch20.settings
 
 enum class ChatMode { OFF, OVERLAY, THEATER }
 enum class ChatPosition { TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
+enum class OverlaySize(val widthFraction: Float, val heightFraction: Float) {
+    SMALL(.20f, .40f), MEDIUM(.24f, .52f), LARGE(.30f, .66f)
+}
 
 data class ChatStyle(val textSizeSp: Int = 18, val opacity: Float = .65f) {
     internal fun normalized(): ChatStyle = copy(textSizeSp = textSizeSp.coerceIn(12, 24),
@@ -15,12 +18,14 @@ data class AppSettings(
     val chatPosition: ChatPosition = ChatPosition.TOP_RIGHT,
     val showClock: Boolean = true,
     val animationsEnabled: Boolean = true,
+    val overlaySize: OverlaySize = OverlaySize.MEDIUM,
+    val cardPreviewEnabled: Boolean = true,
 ) {
     val chatEnabled: Boolean get() = chatMode != ChatMode.OFF
     val overlayEnabled: Boolean get() = chatMode == ChatMode.OVERLAY
     val theaterEnabled: Boolean get() = chatMode == ChatMode.THEATER
     val chatTextSizeSp: Int get() = styleFor(chatMode).textSizeSp
-    val chatOpacity: Float get() = styleFor(chatMode).opacity
+    val chatOpacity: Float get() = if (theaterEnabled) 1f else overlayStyle.opacity
 
     fun styleFor(mode: ChatMode): ChatStyle = if (mode == ChatMode.THEATER) theaterStyle else overlayStyle
 
@@ -53,6 +58,8 @@ internal object SettingsCodec {
             chatPosition = enumValue<ChatPosition>(values["chatPosition"]) ?: ChatPosition.TOP_RIGHT,
             showClock = values["showClock"] as? Boolean ?: true,
             animationsEnabled = values["animationsEnabled"] as? Boolean ?: true,
+            overlaySize = enumValue<OverlaySize>(values["overlaySize"]) ?: OverlaySize.MEDIUM,
+            cardPreviewEnabled = values["cardPreviewEnabled"] as? Boolean ?: true,
         )
     }
 
@@ -61,7 +68,8 @@ internal object SettingsCodec {
             "overlayTextSizeSp" to safe.overlayStyle.textSizeSp, "overlayOpacity" to safe.overlayStyle.opacity,
             "theaterTextSizeSp" to safe.theaterStyle.textSizeSp, "theaterOpacity" to safe.theaterStyle.opacity,
             "chatPosition" to safe.chatPosition.name, "showClock" to safe.showClock,
-            "animationsEnabled" to safe.animationsEnabled)
+            "animationsEnabled" to safe.animationsEnabled,
+            "overlaySize" to safe.overlaySize.name, "cardPreviewEnabled" to safe.cardPreviewEnabled)
     }
 
     private inline fun <reified T : Enum<T>> enumValue(value: Any?): T? =

@@ -26,6 +26,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import coil3.compose.AsyncImage
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -37,6 +40,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -91,9 +95,12 @@ fun PlayerScreen(
     title: String,
     subtitle: String,
     onBack: () -> Unit,
+    channelName: String = subtitle,
+    avatarUrl: String = "",
+    category: String = "",
+    viewers: Int? = null,
     chatContent: (@Composable (AppSettings) -> Unit)? = null,
     settings: AppSettings = AppSettings(),
-    onSettings: () -> Unit = {},
     onSettingsChange: (AppSettings) -> Unit = {},
     onChatPreview: (Boolean?) -> Unit = {},
     onRetry: () -> Unit = { session.retry() },
@@ -103,7 +110,7 @@ fun PlayerScreen(
     var qualityOpen by remember(session) { mutableStateOf(false) }
     var chatSettingsOpen by remember(session) { mutableStateOf(false) }
     var draftSettings by remember(session) { mutableStateOf(settings) }
-    var settingsFromChat by remember { mutableStateOf(false) }
+    var profileOrigin by remember { mutableStateOf("chat") }
     var interaction by remember { mutableLongStateOf(0) }
     var swallowedKey by remember { mutableStateOf<Int?>(null) }
     var returnFocus by remember { mutableStateOf<String?>(null) }
@@ -124,15 +131,16 @@ fun PlayerScreen(
     var transientPreview by remember { mutableStateOf<AppSettings?>(null) }
     val retryFocus = remember { FocusRequester() }
     val chatFocus = remember { FocusRequester() }
-    val settingsFocus = remember { FocusRequester() }
+    val clockFocus = remember { FocusRequester() }
     val draftFocus = remember { FocusRequester() }
     val editor = rememberSettingsEditorState()
-    val editingInactiveProfile = when (editor.page) {
-        SettingsEditorPage.OVERLAY -> draftSettings.chatMode != ChatMode.OVERLAY
-        SettingsEditorPage.THEATER -> draftSettings.chatMode != ChatMode.THEATER
-        else -> false
-    }
-    val effectiveSettings = if (chatSettingsOpen) transientPreview ?: draftSettings else settings
+    val effectiveSettings = if (chatSettingsOpen) (transientPreview ?: draftSettings).let { preview ->
+        when(editor.page) {
+            SettingsEditorPage.OVERLAY -> preview.copy(chatMode=ChatMode.OVERLAY)
+            SettingsEditorPage.THEATER -> preview.copy(chatMode=ChatMode.THEATER)
+            else -> preview
+        }
+    } else settings
     LaunchedEffect(chatSettingsOpen, effectiveSettings.chatEnabled) {
         onChatPreview(if (chatSettingsOpen) effectiveSettings.chatEnabled else null)
     }
@@ -147,20 +155,19 @@ fun PlayerScreen(
     }
 
     fun closeQuality() { returnFocus = "quality"; qualityOpen = false; hudVisible = true; interaction++ }
-    fun openChatSettings(fromChat: Boolean, fromTheater: Boolean = false) {
+    fun openProfile(page: SettingsEditorPage, origin: String) {
         draftSettings = settings
+        transientPreview = null
         editor.reset()
-        if (fromChat) editor.open(SettingsEditorPage.OVERLAY)
-        if (fromTheater) editor.open(SettingsEditorPage.THEATER)
-        returnFocus = if (fromTheater) "theater" else null
-        settingsFromChat = fromChat
+        editor.open(page)
+        profileOrigin = origin
         qualityOpen = false
         chatSettingsOpen = true
         interaction++
     }
-    fun closeChatSettings(save: Boolean) {
-        if (save) onSettingsChange(draftSettings)
-        returnFocus = if (returnFocus == "theater") "theater" else if (settingsFromChat) "chat" else "settings"
+    fun closeProfile() {
+        returnFocus = profileOrigin
+        transientPreview = null
         chatSettingsOpen = false
         hudVisible = true
         interaction++
@@ -174,7 +181,7 @@ fun PlayerScreen(
     fun handleBack() {
         when {
             seek.active -> cancelSeek()
-            chatSettingsOpen -> if (!editor.back()) closeChatSettings(false)
+            chatSettingsOpen -> closeProfile()
             qualityOpen -> closeQuality()
             hudVisible && state.status != PlaybackStatus.Error -> { hudVisible = false; interaction++ }
             else -> onBack()
@@ -197,7 +204,7 @@ fun PlayerScreen(
             returning == "quality" && (state.status != PlaybackStatus.Error || state.qualityOptions.isNotEmpty()) -> qualityFocus.requestFocus()
             returning == "chat" && state.status != PlaybackStatus.Error -> chatFocus.requestFocus()
             returning == "theater" && state.status != PlaybackStatus.Error -> theaterFocus.requestFocus()
-            returning == "settings" && state.status != PlaybackStatus.Error -> settingsFocus.requestFocus()
+            returning == "clock" && state.status != PlaybackStatus.Error -> clockFocus.requestFocus()
             state.status == PlaybackStatus.Error -> retryFocus.requestFocus()
             hudVisible -> pauseFocus.requestFocus()
             else -> screenFocus.requestFocus()
@@ -230,7 +237,7 @@ fun PlayerScreen(
             } else if (swallowedKey == code) {
                 if (native.action == AndroidKeyEvent.ACTION_UP) swallowedKey = null
                 true
-            } else if (!hudVisible && !panelOpen && code in revealKeys) {
+            } else if (!hudVisible && !panelOpen && state.status != PlaybackStatus.Error && code in revealKeys) {
                 if (native.action == AndroidKeyEvent.ACTION_DOWN) {
                     swallowedKey = code
                     hudVisible = true
@@ -257,6 +264,8 @@ fun PlayerScreen(
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(subtitle, color = PlayerMuted, fontSize = 13.sp, maxLines = 2,
                             overflow = TextOverflow.Ellipsis)
+                        if (chatSettingsOpen && effectiveSettings.chatMode != draftSettings.chatMode)
+                            Text("Предпросмотр выключенного профиля", color=TvColors.Link, fontSize=12.sp)
                     }
                 }
             }
@@ -266,14 +275,14 @@ fun PlayerScreen(
                     top = if (hudVisible && !panelOpen) headerHeight else 52.dp,
                     bottom = if (hudVisible && !panelOpen) hudHeight else ChatLayout.inset)) {
                     Box(Modifier.align(ChatLayout.alignment(effectiveSettings.chatPosition))
-                        .width(contentWidth * ChatLayout.overlayWidthFraction)
-                        .height(contentHeight * ChatLayout.overlayHeightFraction)) { chatContent(effectiveSettings) }
+                        .width(contentWidth * ChatLayout.overlayWidth(effectiveSettings))
+                        .height(contentHeight * ChatLayout.overlayHeight(effectiveSettings))) { chatContent(effectiveSettings) }
                 }
             }
             if (effectiveSettings.showClock && !qualityOpen) {
                 val clockAlignment = Alignment.TopEnd
                 Text(clockText, color = PlayerText, fontSize = 17.sp,
-                    modifier = Modifier.align(clockAlignment).padding(20.dp)
+                    modifier = Modifier.align(clockAlignment).zIndex(1f).padding(20.dp)
                         .background(PlayerBackground.copy(alpha = .65f), RoundedCornerShape(4.dp)).padding(4.dp))
             }
 
@@ -302,20 +311,37 @@ fun PlayerScreen(
                     }
                 }
             } else if (hudVisible && !panelOpen) {
-                Column(Modifier.align(Alignment.TopStart).fillMaxWidth()
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.10f)))
+                Row(Modifier.align(Alignment.TopStart).fillMaxWidth()
                     .onSizeChanged { headerHeight=with(density) { it.height.toDp() } }
-                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha=.82f), Color.Transparent)))
-                    .padding(start=28.dp, end=100.dp, top=22.dp, bottom=30.dp)) {
-                    Text(if (state.isLive) "В ПРЯМОМ ЭФИРЕ" else "ЗАПИСЬ", color=TvColors.Link,
-                        fontSize=11.sp, fontWeight=FontWeight.Bold)
-                    Text(title, color=PlayerText, fontSize=22.sp, fontWeight=FontWeight.SemiBold,
-                        maxLines=2, overflow=TextOverflow.Ellipsis)
-                    if (subtitle.isNotBlank()) Text(subtitle, color=PlayerMuted, fontSize=13.sp,
-                        maxLines=1, overflow=TextOverflow.Ellipsis)
+                    .background(Brush.verticalGradient(0f to Color.Black.copy(alpha=.92f),
+                        .65f to Color.Black.copy(alpha=.70f), 1f to Color.Transparent))
+                    .padding(start=28.dp, end=100.dp, top=22.dp, bottom=34.dp),
+                    horizontalArrangement=Arrangement.spacedBy(14.dp), verticalAlignment=Alignment.Top) {
+                    if (avatarUrl.isNotBlank()) AsyncImage(model=avatarUrl, contentDescription=null,
+                        modifier=Modifier.size(48.dp).clip(CircleShape).background(TvColors.Raised), contentScale=ContentScale.Crop)
+                    Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                        Text(channelName, color=PlayerText, fontSize=16.sp, fontWeight=FontWeight.SemiBold,
+                            maxLines=1, overflow=TextOverflow.Ellipsis)
+                        Text(title, color=PlayerText, fontSize=21.sp, fontWeight=FontWeight.SemiBold,
+                            maxLines=2, overflow=TextOverflow.Ellipsis)
+                        Row(horizontalArrangement=Arrangement.spacedBy(14.dp), verticalAlignment=Alignment.CenterVertically) {
+                            if (category.isNotBlank()) Text(category, color=PlayerMuted, fontSize=14.sp,
+                                maxLines=1, overflow=TextOverflow.Ellipsis, modifier=Modifier.weight(1f, fill=false))
+                            viewers?.let { count -> Row(horizontalArrangement=Arrangement.spacedBy(5.dp),
+                                verticalAlignment=Alignment.CenterVertically) {
+                                PlayerGlyph(PlayerGlyph.VIEWERS, PlayerMuted)
+                                Text(java.text.NumberFormat.getIntegerInstance(Locale.forLanguageTag("ru")).format(count),
+                                    color=PlayerMuted, fontSize=14.sp,
+                                    modifier=Modifier.semantics { contentDescription="$count зрителей" })
+                            } }
+                        }
+                    }
                 }
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                     .onSizeChanged { hudHeight=with(density) { it.height.toDp() } }
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha=.94f))))
+                    .background(Brush.verticalGradient(0f to Color.Transparent, .28f to Color.Black.copy(alpha=.78f),
+                        .65f to Color.Black.copy(alpha=.94f), 1f to Color.Black.copy(alpha=.96f)))
                     .padding(start=28.dp, end=28.dp, top=38.dp, bottom=16.dp),
                     verticalArrangement=Arrangement.spacedBy(12.dp)) {
                     if (!state.isLive) VodProgress(state, seek.targetMs, timelineEnabled, Modifier.focusRequester(timelineFocus).focusProperties { down=pauseFocus },
@@ -343,28 +369,30 @@ fun PlayerScreen(
                         if (!state.isLive) PlayerAction("Вперёд на 10 секунд", icon=PlayerGlyph.FORWARD,
                             onFocused={ focusCaption="Вперёд на 10 секунд" }) { session.seekBy(10_000) }
                         Spacer(Modifier.weight(1f))
-                        PlayerAction("Качество", Modifier.focusRequester(qualityFocus), icon=PlayerGlyph.QUALITY,
+                        PlayerAction("Качество", Modifier.focusRequester(qualityFocus), icon=PlayerGlyph.QUALITY, badge=state.activeQuality.ifBlank { "Авто" },
                             onFocused={ focusCaption="Качество · ${state.activeQuality.ifBlank { "Авто" }}" }) { qualityOpen=true }
                         if (chatContent != null) {
                             PlayerAction(if(settings.overlayEnabled) "Чат: вкл" else "Чат: выкл",
                                 Modifier.focusRequester(chatFocus), active=settings.overlayEnabled, icon=PlayerGlyph.CHAT,
                                 onFocused={ focusCaption="Чат · ${if(settings.overlayEnabled) "включён" else "выключен"} · Удерживайте OK для настройки" },
-                                onLongClick={ pending -> swallowedKey=pending; openChatSettings(true) }) {
+                                onLongClick={ pending -> swallowedKey=pending; openProfile(SettingsEditorPage.OVERLAY,"chat") }) {
                                 onSettingsChange(settings.toggleChat(ChatMode.OVERLAY))
                             }
                             PlayerAction(if(settings.theaterEnabled) "Кинотеатр: вкл" else "Кинотеатр: выкл",
                                 Modifier.focusRequester(theaterFocus), active=settings.theaterEnabled, icon=PlayerGlyph.THEATER,
                                 onFocused={ focusCaption="Кинотеатр · ${if(settings.theaterEnabled) "включён" else "выключен"} · Удерживайте OK для настройки" },
-                                onLongClick={ pending -> swallowedKey=pending; openChatSettings(false,true) }) {
+                                onLongClick={ pending -> swallowedKey=pending; openProfile(SettingsEditorPage.THEATER,"theater") }) {
                                 onSettingsChange(settings.toggleChat(ChatMode.THEATER))
                             }
                         }
-                        PlayerAction("Настройки", Modifier.focusRequester(settingsFocus), icon=PlayerGlyph.SETTINGS,
-                            onFocused={ focusCaption="Настройки просмотра" }) { openChatSettings(false) }
+                        PlayerAction("Часы", Modifier.focusRequester(clockFocus), icon=PlayerGlyph.CLOCK, active=settings.showClock,
+                            onFocused={ focusCaption="Часы · ${if(settings.showClock) "показаны" else "скрыты"} · Удерживайте OK для настройки" },
+                            onLongClick={ pending -> swallowedKey=pending; openProfile(SettingsEditorPage.CLOCK,"clock") }) {
+                            onSettingsChange(settings.copy(showClock=!settings.showClock))
+                        }
                     }
                     Text(if(timelineFocused) {
-                        if(seek.active) "← → позиция · Удерживайте для ускорения · OK перейти · Назад отменить"
-                        else "← → перемотка · ↓ управление"
+                        if(seek.active) "OK — перейти к ${timeText(seek.targetMs ?: state.positionMs)}" else "Перемотка"
                     } else focusCaption, color=PlayerText, fontSize=12.sp, maxLines=1,
                         overflow=TextOverflow.Ellipsis, textAlign=TextAlign.Center, modifier=Modifier.fillMaxWidth().heightIn(min=18.dp))
                 }
@@ -410,18 +438,10 @@ fun PlayerScreen(
             Column(Modifier.width(300.dp).fillMaxHeight().background(PlayerPanel)
                 .border(1.dp, TvColors.Border).padding(22.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Просмотр", color = PlayerText, fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
-                Text(if (editingInactiveProfile) "Профиль не включён. Изменения будут видны после включения режима."
-                    else if (draftSettings != settings) "Есть несохранённые изменения" else "Настройте просмотр под себя",
-                    color = PlayerMuted, fontSize = 12.sp)
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ChatSettingsControls(draftSettings, { draftSettings = it }, draftFocus, state = editor,
-                        onPreviewSettings = { transientPreview = it })
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PlayerAction("Сохранить", Modifier.weight(1f)) { closeChatSettings(true) }
-                    PlayerAction("Отмена", Modifier.weight(1f)) { closeChatSettings(false) }
+                    ChatSettingsControls(draftSettings, { draftSettings = it; onSettingsChange(it) }, draftFocus, state = editor,
+                        onPreviewSettings = { transientPreview = it }, onCloseProfile = { closeProfile() })
                 }
             }
         }
@@ -471,12 +491,12 @@ private fun VodProgress(state: PlaybackState, targetMs: Long?, enabled: Boolean,
 
 @Composable
 private fun PlayerAction(label: String, modifier: Modifier = Modifier,
-    active: Boolean = false, icon: PlayerGlyph? = null, prominent: Boolean = false,
+    active: Boolean = false, icon: PlayerGlyph? = null, prominent: Boolean = false, badge: String? = null,
     onFocused: () -> Unit = {}, onLongClick: ((Int?) -> Unit)? = null, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     var longTriggered by remember { mutableStateOf(false) }
     LaunchedEffect(focused, label) { if(focused) onFocused() }
-    Box(modifier.then(if(icon!=null) Modifier.size(if(prominent) 56.dp else 44.dp) else Modifier)
+    Box(modifier.then(if(icon!=null) Modifier.width(if(badge!=null) 72.dp else if(prominent) 56.dp else 44.dp).height(if(prominent) 56.dp else 44.dp) else Modifier)
         .onFocusChanged { focused = it.isFocused; if(it.isFocused) onFocused(); if (!it.isFocused) longTriggered = false }
         .background(when { focused -> PlayerFocus; active -> TvColors.Accent.copy(alpha = .22f); else -> TvColors.Raised }, TvShapes.Control)
         .border(1.dp, when { focused -> PlayerFocus; active -> TvColors.Link; else -> TvColors.Border }, TvShapes.Control)
@@ -504,7 +524,12 @@ private fun PlayerAction(label: String, modifier: Modifier = Modifier,
         .focusable().then(if(icon==null) Modifier.padding(horizontal = 14.dp, vertical = 11.dp) else Modifier),
         contentAlignment = if(icon!=null) Alignment.Center else Alignment.CenterStart) {
         if(icon!=null) {
-            PlayerGlyph(icon, if(focused) PlayerBackground else PlayerText, prominent)
+            if (badge == null) PlayerGlyph(icon, if(focused) PlayerBackground else PlayerText, prominent)
+            else Column(horizontalAlignment=Alignment.CenterHorizontally) {
+                PlayerGlyph(icon, if(focused) PlayerBackground else PlayerText)
+                Text(badge, color=if(focused) PlayerBackground else PlayerText, fontSize=10.sp,
+                    lineHeight=11.sp, fontWeight=FontWeight.Bold, maxLines=1)
+            }
             if(active) Box(Modifier.align(Alignment.BottomCenter).padding(bottom=3.dp).width(12.dp).height(3.dp)
                 .background(if(focused) PlayerBackground else TvColors.Link, TvShapes.Control))
         } else Text(label, color = if (focused) PlayerBackground else PlayerText, fontSize = 14.sp,

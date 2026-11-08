@@ -37,7 +37,8 @@ class SettingsProfilesTest {
         val original = AppSettings(chatMode = ChatMode.THEATER,
             overlayStyle = ChatStyle(12, .1f), theaterStyle = ChatStyle(24, .9f))
         assertEquals(24, original.chatTextSizeSp)
-        assertEquals(.9f, original.chatOpacity, 0f)
+        assertEquals(1f, original.chatOpacity, 0f)
+        assertEquals(.9f, original.theaterStyle.opacity, 0f)
         val off = original.toggleChat(ChatMode.OFF)
         assertEquals(12, off.chatTextSizeSp)
         assertEquals(.1f, off.chatOpacity, 0f)
@@ -104,5 +105,23 @@ class SettingsProfilesTest {
         assertFalse(values.containsKey("chatMode"))
         assertFalse(values.containsKey("chatTextSizeSp"))
         assertFalse(values.containsKey("chatOpacity"))
+    }
+
+    @Test fun legacySettingsGetDefaultGeometryAndPreviewWithoutResettingProfiles() {
+        val settings = SettingsCodec.decode(mapOf("activeChatMode" to "THEATER",
+            "theaterOpacity" to .2f, "overlayOpacity" to .4f, "showClock" to false))
+        assertEquals(OverlaySize.MEDIUM, settings.overlaySize)
+        assertTrue(settings.cardPreviewEnabled)
+        assertEquals(1f, settings.chatOpacity, 0f)
+        assertEquals(.2f, settings.theaterStyle.opacity, 0f)
+        assertFalse(settings.showClock)
+        assertEquals(OverlaySize.MEDIUM, SettingsCodec.decode(mapOf("overlaySize" to "unknown")).overlaySize)
+    }
+
+    @Test fun newSettingsRoundTripPreservesSizePreviewClockAndInactiveProfiles() {
+        val settings = AppSettings(chatMode = ChatMode.OFF, overlaySize = OverlaySize.LARGE,
+            cardPreviewEnabled = false, showClock = false, overlayStyle = ChatStyle(14, .25f),
+            theaterStyle = ChatStyle(22, .1f))
+        assertEquals(settings, SettingsCodec.decode(SettingsCodec.encode(settings)))
     }
 }

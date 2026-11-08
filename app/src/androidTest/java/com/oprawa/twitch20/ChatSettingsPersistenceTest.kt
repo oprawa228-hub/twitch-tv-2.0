@@ -8,6 +8,9 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.oprawa.twitch20.settings.SettingsStore
 import com.oprawa.twitch20.settings.ChatMode
 import com.oprawa.twitch20.settings.ChatStyle
+import com.oprawa.twitch20.settings.OverlaySize
+import com.oprawa.twitch20.ui.SettingsChoice
+import com.oprawa.twitch20.ui.SettingsSelection
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -53,7 +56,8 @@ class ChatSettingsPersistenceTest {
         val settings = SettingsStore(context).state.value
         assertEquals("THEATER", settings.chatMode.name)
         assertEquals(22, settings.chatTextSizeSp)
-        assertEquals(.9f, settings.chatOpacity, .0001f)
+        assertEquals(1f, settings.chatOpacity, .0001f)
+        assertEquals(.9f, settings.theaterStyle.opacity, .0001f)
         assertTrue(settings.chatEnabled)
     }
 
@@ -94,6 +98,66 @@ class ChatSettingsPersistenceTest {
         assertFalse(reopened.chatEnabled)
         assertEquals(12, reopened.chatTextSizeSp)
         assertEquals(.1f, reopened.chatOpacity, .0001f)
+    }
+
+    @Test fun pickerConfirmationPersistsImmediatelyWithoutASeparateScreenSave() = withPreferences { context, prefs ->
+        val store = SettingsStore(context)
+        store.save(store.state.value.copy(chatMode = ChatMode.OFF))
+        val overlay = SettingsSelection(store.state.value, ChatMode.OVERLAY, SettingsChoice.TEXT_SIZE)
+        val small = overlay.options.indexOfFirst { it.label == "Маленький" }
+        // The same callback as picker OK: the editor remains open and has no screen-level draft.
+        store.save(overlay.focus(small).confirm())
+        assertEquals(14, prefs.getInt("overlayTextSizeSp", -1))
+        assertEquals(14, SettingsStore(context).state.value.overlayStyle.textSizeSp)
+        assertEquals(ChatMode.OFF, SettingsStore(context).state.value.chatMode)
+
+        val theater = SettingsSelection(store.state.value, ChatMode.THEATER, SettingsChoice.TEXT_SIZE)
+        val large = theater.options.indexOfFirst { it.label == "Большой" }
+        store.save(theater.focus(large).confirm())
+        val reopened = SettingsStore(context).state.value
+        assertEquals(14, reopened.overlayStyle.textSizeSp)
+        assertEquals(22, reopened.theaterStyle.textSizeSp)
+        assertEquals(ChatMode.OFF, reopened.chatMode)
+    }
+
+    @Test fun focusAndBackNeverOverwriteTheLastConfirmedSettings() = withPreferences { context, prefs ->
+        val store = SettingsStore(context)
+        store.save(store.state.value.copy(overlaySize = OverlaySize.SMALL, chatMode = ChatMode.THEATER,
+            overlayStyle = ChatStyle(14, .35f), theaterStyle = ChatStyle(22, .1f)))
+        val confirmed = store.state.value
+        val persisted = prefs.all.toMap()
+        for (choice in SettingsChoice.entries) {
+            val picker = SettingsSelection(confirmed, ChatMode.OVERLAY, choice)
+            val different = picker.options.indexOfFirst { it.settings != confirmed }
+            assertTrue(different >= 0)
+            val focused = picker.focus(different)
+            assertNotEquals(confirmed, focused.preview())
+            assertEquals(confirmed, focused.cancel())
+            assertEquals(persisted, prefs.all)
+            assertEquals(confirmed, SettingsStore(context).state.value)
+        }
+    }
+
+    @Test fun boxSizeSurvivesProfileChangesWhileTheaterStaysOpaque() = withPreferences { context, prefs ->
+        val store = SettingsStore(context)
+        store.save(store.state.value.copy(chatMode = ChatMode.OFF, overlayStyle = ChatStyle(14, .25f),
+            theaterStyle = ChatStyle(22, .1f), showClock = false, cardPreviewEnabled = false))
+        val size = SettingsSelection(store.state.value, ChatMode.OVERLAY, SettingsChoice.OVERLAY_SIZE)
+        store.save(size.focus(OverlaySize.LARGE.ordinal).confirm())
+        assertEquals("LARGE", prefs.getString("overlaySize", null))
+        store.save(store.state.value.toggleChat(ChatMode.THEATER))
+        val theater = SettingsStore(context).state.value
+        assertEquals(OverlaySize.LARGE, theater.overlaySize)
+        assertEquals(1f, theater.chatOpacity, .0001f)
+        assertEquals(ChatStyle(22, .1f), theater.theaterStyle)
+        assertFalse(theater.showClock)
+        assertFalse(theater.cardPreviewEnabled)
+        store.save(theater.toggleChat(ChatMode.OVERLAY))
+        val overlay = SettingsStore(context).state.value
+        assertEquals(OverlaySize.LARGE, overlay.overlaySize)
+        assertEquals(ChatStyle(14, .25f), overlay.overlayStyle)
+        assertEquals(.25f, overlay.chatOpacity, .0001f)
+        assertEquals(ChatMode.OVERLAY, overlay.chatMode)
     }
 
     private fun withPreferences(block: (Context, SharedPreferences) -> Unit) {

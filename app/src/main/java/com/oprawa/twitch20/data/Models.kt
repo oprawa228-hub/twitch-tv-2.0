@@ -9,6 +9,7 @@ data class Channel(
     val imageUrl: String,
     val viewers: Int = 0,
     val live: Boolean = true,
+    val avatarUrl: String = "",
 )
 
 data class Category(val id: String, val name: String, val imageUrl: String)

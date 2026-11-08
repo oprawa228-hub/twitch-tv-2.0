@@ -16,12 +16,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -94,6 +96,8 @@ fun CatalogScreen(
     guestLimited: Boolean = false,
     revision: Long = 0,
     allowFocusRestore: Boolean = true,
+    previewEnabled: Boolean = true,
+    resolvePreview: (suspend (Channel) -> String)? = null,
 ) {
     val mayRestoreFocus by rememberUpdatedState(allowFocusRestore)
     val entries = buildList {
@@ -122,7 +126,9 @@ fun CatalogScreen(
     val emptyRequester = remember { FocusRequester() }
     var restored by remember(revision) { mutableStateOf(false) }
     var focusedEntryKey by remember { mutableStateOf<String?>(null) }
-    val showChannelHint = entries.any { it.key == focusedEntryKey && it.details != null }
+    val focusedChannel = channels.firstOrNull { "channel:${it.id}" == focusedEntryKey }
+    val preview = rememberCatalogVideoPreview(focusedChannel, previewEnabled,
+        state.isScrollInProgress, resolvePreview)
 
     LaunchedEffect(selectedKey, entries.size, hasMore, busy, error) {
         if (hasMore && !busy && error == null && entries.isNotEmpty() &&
@@ -142,7 +148,15 @@ fun CatalogScreen(
             restored = true
         }
     }
-    LaunchedEffect(busy, error, entries.isEmpty()) {
+    // OK on an already previewed rail section must enter its restored card as well.
+    LaunchedEffect(allowFocusRestore) {
+        if (allowFocusRestore && restored && keys.isNotEmpty()) {
+            withFrameNanos { }
+            val index = keys.indexOf(selectedKey).coerceAtLeast(0)
+            requesters[keys[index]]?.requestFocus()
+        }
+    }
+    LaunchedEffect(busy, error, entries.isEmpty(), allowFocusRestore) {
         if (!busy && entries.isEmpty()) {
             withFrameNanos { }
             if (mayRestoreFocus) emptyRequester.requestFocus()
@@ -159,10 +173,7 @@ fun CatalogScreen(
             if (busy) Text("Обновление…", fontSize = 12.sp, color = TvColors.Muted)
             else if (entries.isNotEmpty()) TvAction("Обновить", onRefresh, Modifier.height(36.dp))
         }
-        // Reserve the hint's line even when the rail/header owns focus: the grid never jumps.
-        Text(if (showChannelHint) "Удерживайте OK — открыть канал" else "",
-            color = TvColors.Muted, fontSize = 11.sp, lineHeight = 14.sp,
-            modifier = Modifier.fillMaxWidth().height(20.dp).padding(start = 4.dp), maxLines = 1)
+        Spacer(Modifier.height(12.dp))
         if (error != null && entries.isNotEmpty()) {
             Row(Modifier.fillMaxWidth().padding(bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -202,7 +213,8 @@ fun CatalogScreen(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
                 items(entries, key = { it.key }) { entry ->
-                    CatalogCard(entry, imageHeight, requesters.getValue(entry.key), onFocused) { hasFocus ->
+                    CatalogCard(entry, imageHeight, requesters.getValue(entry.key), onFocused,
+                        preview?.takeIf { "channel:${it.channelId}" == entry.key }) { hasFocus ->
                         if (hasFocus) focusedEntryKey = entry.key
                         else if (focusedEntryKey == entry.key) focusedEntryKey = null
                     }
@@ -235,7 +247,7 @@ fun CatalogScreen(
 
 @Composable
 private fun CatalogCard(entry: CatalogEntry, imageHeight: Dp, requester: FocusRequester,
-    onFocused: (String) -> Unit, onFocusState: (Boolean) -> Unit) {
+    onFocused: (String) -> Unit, preview: CatalogPreview?, onFocusState: (Boolean) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     var longActivated by remember { mutableStateOf(false) }
     val shape = TvShapes.Control
@@ -283,11 +295,16 @@ private fun CatalogCard(entry: CatalogEntry, imageHeight: Dp, requester: FocusRe
                 fontSize = 28.sp, color = TvColors.Muted)
             AsyncImage(model = entry.image, contentDescription = null,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-            if (entry.typeLabel.isNotBlank()) Text(entry.typeLabel,
+            if (preview != null) CatalogVideoPreview(preview, Modifier.fillMaxSize())
+            if (entry.typeLabel == "В ЭФИРЕ") {
+                Box(Modifier.align(Alignment.TopStart).padding(8.dp).size(9.dp)
+                    .background(TvColors.Live, CircleShape)
+                    .border(1.dp, TvColors.Background.copy(alpha = .7f), CircleShape))
+            } else if (entry.typeLabel.isNotBlank()) Text(entry.typeLabel,
                 Modifier.align(Alignment.TopStart).padding(6.dp)
                     .background(TvColors.Background.copy(alpha = .9f), RoundedCornerShape(3.dp))
                     .padding(horizontal = 5.dp, vertical = 2.dp),
-                color = if (entry.typeLabel == "В ЭФИРЕ") TvColors.Live else TvColors.Text,
+                color = TvColors.Text,
                 fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             if (entry.badge.isNotBlank()) Text(entry.badge,
                 Modifier.align(if (entry.kind == CatalogKind.Video) Alignment.BottomEnd else Alignment.BottomStart).padding(6.dp)

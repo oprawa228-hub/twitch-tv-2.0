@@ -15,11 +15,15 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.DecoderCounters
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.hls.HlsManifest
+import androidx.media3.exoplayer.hls.playlist.HlsPlaylistTracker
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import com.oprawa.twitch20.data.VideoVariant
+import com.oprawa.twitch20.BuildConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,6 +35,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import java.util.UUID
 import kotlin.math.roundToInt
 
@@ -60,7 +65,7 @@ data class PlaybackState(
 
 /** One owner per viewing session. All public operations run on the Android main thread. */
 @OptIn(UnstableApi::class)
-class PlaybackSession(context: Context) {
+class PlaybackSession internal constructor(context: Context, dataSourceFactory: DataSource.Factory? = null) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutableState = MutableStateFlow(PlaybackState())
     private var progressJob: Job? = null
@@ -75,11 +80,30 @@ class PlaybackSession(context: Context) {
     private val metrics = PlaybackMetrics()
     private var progressiveSources: List<VideoVariant> = emptyList()
     private val qualityPreference = QualityPreference()
+    private val hlsDiagnostics = HlsPlaybackDiagnostics()
+    private val liveSourceRecovery = LiveSourceRecovery()
+    private var sourceRecoveryJob: Job? = null
+    private var pendingSourceRecoveryItem: MediaItem? = null
+    private val debugHls = if (BuildConfig.DEBUG) DebugHlsCorrelation() else null
 
-    private val http = OkHttpClient.Builder().build()
+    private val http = OkHttpClient.Builder().apply {
+        if (BuildConfig.DEBUG) addNetworkInterceptor { chain ->
+            val response = chain.proceed(chain.request())
+            if (chain.request().url.encodedPath.endsWith(".m3u8", ignoreCase = true)) {
+                val uri = android.net.Uri.parse(chain.request().url.toString())
+                Log.i("TwitchPlayback", "debug_hls_http ${debugHls?.role(uri)} code=${response.code}" +
+                    " http_version=${if (response.protocol == Protocol.HTTP_2) 2 else 1}" +
+                    " gzip=${if (response.header("Content-Encoding") == "gzip") 1 else 0}" +
+                    " age_s=${response.header("Age")?.toLongOrNull() ?: -1}")
+            }
+            response
+        }
+    }.build()
+    private val playbackDataSource = dataSourceFactory ?: OkHttpDataSource.Factory(http)
+    private val playbackMediaSourceFactory = DefaultMediaSourceFactory(context.applicationContext)
+        .setDataSourceFactory(playbackDataSource).let { default -> debugHls?.sourceFactory(default, playbackDataSource) ?: default }
     val player: ExoPlayer = ExoPlayer.Builder(context.applicationContext)
-        .setMediaSourceFactory(DefaultMediaSourceFactory(context.applicationContext)
-            .setDataSourceFactory(OkHttpDataSource.Factory(http)))
+        .setMediaSourceFactory(playbackMediaSourceFactory)
         .build().apply {
             setAudioAttributes(AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
@@ -105,17 +129,46 @@ class PlaybackSession(context: Context) {
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            Log.w("TwitchPlayback", "player_error_code=${error.errorCode}" +
+                " cause_types=${safePlaybackErrorCauseNames(error)}")
             metrics.finish(SystemClock.elapsedRealtime())
+            val playlistFailure = playbackErrorCauses(error).any {
+                it is HlsPlaylistTracker.PlaylistStuckException || it is HlsPlaylistTracker.PlaylistResetException
+            }
+            if (BuildConfig.DEBUG) playbackErrorCauses(error).forEach { cause ->
+                val uri = when (cause) {
+                    is HlsPlaylistTracker.PlaylistStuckException -> cause.url
+                    is HlsPlaylistTracker.PlaylistResetException -> cause.url
+                    else -> null
+                }
+                if (uri != null) debugHls?.error(uri, player.currentManifest as? HlsManifest)
+            }
+            val failedItem = player.currentMediaItem
+            if (liveSourceRecovery.claim(mutableState.value.isLive, playlistFailure,
+                    foreground = !backgrounded, hasItem = failedItem != null)) {
+                mutableState.value = mutableState.value.copy(status = PlaybackStatus.Buffering,
+                    isPlaying = false, error = null)
+                sourceRecoveryJob?.cancel()
+                pendingSourceRecoveryItem = failedItem
+                sourceRecoveryJob = scope.launch {
+                    delay(1_000)
+                    if (released || backgrounded || player.currentMediaItem != failedItem) return@launch
+                    // Read at execution time: PAUSE during the delay must win over recovery.
+                    restartLiveSource(requireNotNull(failedItem), player.playWhenReady)
+                }
+                return
+            }
             if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW &&
                 mutableState.value.isLive && !recoveredLiveWindow) {
                 recoveredLiveWindow = true
                 metrics.markPreparation(BufferingReason.RECOVERY, SystemClock.elapsedRealtime())
                 player.seekToDefaultPosition()
                 player.prepare()
-                player.play()
+                // Recovery repairs the expired window, not the user's play/pause intent.
+                // A paused HLS stream can fall behind while its playlist keeps refreshing.
                 return
             }
-            val message = when (error.errorCode) {
+            val message = if (playlistFailure) "Поток Twitch перестал обновляться. Повторите подключение." else when (error.errorCode) {
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
                     "Нет соединения. Проверьте сеть и повторите."
@@ -128,7 +181,6 @@ class PlaybackSession(context: Context) {
             }
             mutableState.value = mutableState.value.copy(status = PlaybackStatus.Error,
                 isPlaying = false, error = message)
-            Log.w("TwitchPlayback", "player_error_code=${error.errorCode}")
         }
     }
 
@@ -136,6 +188,16 @@ class PlaybackSession(context: Context) {
         player.addListener(listener)
         player.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
             private var videoWindowStartMs = 0L
+
+            override fun onLoadCompleted(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                loadEventInfo: androidx.media3.exoplayer.source.LoadEventInfo,
+                mediaLoadData: androidx.media3.exoplayer.source.MediaLoadData) {
+                if (!BuildConfig.DEBUG || mediaLoadData.dataType != C.DATA_TYPE_MANIFEST) return
+                val primary = (player.currentManifest as? HlsManifest)?.mediaPlaylist?.baseUri?.let { android.net.Uri.parse(it) }
+                Log.i("TwitchPlayback", "debug_hls_loaded ${debugHls?.role(loadEventInfo.uri)}" +
+                    " primary=${if (loadEventInfo.uri == primary) 1 else 0}" +
+                    " bytes=${loadEventInfo.bytesLoaded} load_ms=${loadEventInfo.loadDurationMs}")
+            }
 
             override fun onVideoEnabled(
                 eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
@@ -201,6 +263,10 @@ class PlaybackSession(context: Context) {
         requestStartedAtMs: Long = SystemClock.elapsedRealtime(),
         progressiveVariants: List<VideoVariant> = emptyList()) {
         check(!released) { "Playback session has been released" }
+        sourceRecoveryJob?.cancel()
+        sourceRecoveryJob = null
+        pendingSourceRecoveryItem = null
+        liveSourceRecovery.reset()
         val previous = mutableState.value
         val sameMedia = previous.mediaId == mediaId
         // ON_STOP pauses the player; a source resolving afterwards must retain
@@ -211,6 +277,7 @@ class PlaybackSession(context: Context) {
         backgrounded = false
         startProgressUpdates()
         recoveredLiveWindow = false
+        hlsDiagnostics.reset()
         bufferingStartedAtMs = 0L
         startedAtMs = SystemClock.elapsedRealtime()
         logMetrics(reason = 1, nowMs = startedAtMs)
@@ -241,13 +308,20 @@ class PlaybackSession(context: Context) {
 
     fun resume() {
         if (released) return
-        if (mutableState.value.isLive) player.seekToDefaultPosition()
+        // Repeated PLAY commands must be idempotent. Seeking on every command can
+        // restart buffered live segments (including an in-stream commercial slate).
+        if (player.playWhenReady && player.playbackState != Player.STATE_ENDED) return
+        if (mutableState.value.isLive) seekToAvailableLiveEdge()
         if (player.playbackState == Player.STATE_ENDED && !mutableState.value.isLive) player.seekTo(0)
         player.play()
     }
 
     fun retry() {
         if (released || player.currentMediaItem == null) return
+        sourceRecoveryJob?.cancel()
+        sourceRecoveryJob = null
+        pendingSourceRecoveryItem = null
+        liveSourceRecovery.reset()
         mutableState.value = mutableState.value.copy(error = null, status = PlaybackStatus.Buffering)
         recoveredLiveWindow = false
         bufferingStartedAtMs = 0L
@@ -272,8 +346,21 @@ class PlaybackSession(context: Context) {
 
     fun seekToLive() {
         if (released || !mutableState.value.isLive) return
-        player.seekToDefaultPosition()
+        seekToAvailableLiveEdge()
         player.play()
+    }
+
+    private fun seekToAvailableLiveEdge() {
+        val timeline = player.currentTimeline
+        if (player.currentMediaItemIndex !in 0 until timeline.windowCount) return
+        val window = timeline.getWindow(player.currentMediaItemIndex, Timeline.Window())
+        val playlist = (window.manifest as? HlsManifest)?.mediaPlaylist ?: return
+        if (!window.isDynamic || playlist.hasEndTag) return
+        val target = PlaybackPolicy.liveEdgeTarget(player.currentPosition, window.durationMs,
+            playlist.durationUs / 1_000, playlist.segments.map { it.relativeStartTimeUs / 1_000 }) ?: return
+        // START=0 is an initial source position, not a request to replay its beginning on resume.
+        Log.i("TwitchPlayback", "live_edge_seek from_ms=${player.currentPosition} to_ms=$target")
+        player.seekTo(target)
     }
 
     fun selectQuality(id: String?) {
@@ -299,6 +386,11 @@ class PlaybackSession(context: Context) {
         metrics.markPreparation(BufferingReason.QUALITY_SWITCH, SystemClock.elapsedRealtime())
         if (failed) {
             if (player.currentMediaItem == null) return
+            // The user's recovery choice supersedes the delayed automatic repair.
+            // Keep its consumed budget so a READY/error cycle cannot create a loop.
+            sourceRecoveryJob?.cancel()
+            sourceRecoveryJob = null
+            pendingSourceRecoveryItem = null
             val recovery = qualityRecoveryPlan(current, selectedId = choice?.id)
             mutableState.value = recovery.state
             bufferingStartedAtMs = 0L
@@ -321,6 +413,8 @@ class PlaybackSession(context: Context) {
 
     fun onBackground() {
         if (released || backgrounded) return
+        sourceRecoveryJob?.cancel()
+        sourceRecoveryJob = null
         backgrounded = true
         metrics.finish(SystemClock.elapsedRealtime())
         progressJob?.cancel()
@@ -336,11 +430,35 @@ class PlaybackSession(context: Context) {
         startProgressUpdates()
         if (player.currentMediaItem == null) return
         mutableState.value = PlaybackPolicy.foregroundState(mutableState.value, resumeAfterBackground)
+        pendingSourceRecoveryItem?.let { pending ->
+            if (pending == player.currentMediaItem) {
+                // ON_STOP cancelled the timer, not the claimed repair. Complete it once
+                // on return, retaining the user's pre-background pause/play intent.
+                restartLiveSource(pending, resumeAfterBackground)
+                return
+            }
+            pendingSourceRecoveryItem = null
+        }
         bufferingStartedAtMs = 0L
         metrics.markPreparation(BufferingReason.FOREGROUND, SystemClock.elapsedRealtime())
         if (mutableState.value.isLive) player.seekToDefaultPosition() else player.seekTo(savedPositionMs)
         player.prepare()
         player.playWhenReady = resumeAfterBackground
+    }
+
+    private fun restartLiveSource(item: MediaItem, requestedPlayback: Boolean) {
+        pendingSourceRecoveryItem = null
+        bufferingStartedAtMs = 0L
+        hlsDiagnostics.reset()
+        metrics.markPreparation(BufferingReason.RECOVERY, SystemClock.elapsedRealtime())
+        // Keep semantic height/fps preferences; discard TrackGroups owned by the failed source.
+        player.trackSelectionParameters = qualityParameters().build()
+        // A new source/tracker discards the frozen/reset playlist snapshot. Same URI/token.
+        player.setMediaItem(item)
+        player.prepare()
+        player.playWhenReady = requestedPlayback
+        Log.i("TwitchPlayback", "live_source_recovery attempt=1 same_item=1" +
+            " play_requested=${if (requestedPlayback) 1 else 0}")
     }
 
     fun release() {
@@ -370,6 +488,22 @@ class PlaybackSession(context: Context) {
     private fun publish() {
         if (released) return
         val previous = mutableState.value
+        if (!backgrounded && previous.isLive && player.currentMediaItem?.mediaId == previous.mediaId) {
+            (player.currentManifest as? HlsManifest)?.mediaPlaylist?.let { playlist ->
+                hlsDiagnostics.observe(playlist.mediaSequence, playlist.segments.size,
+                    playlist.trailingParts.size, playlist.durationUs, playlist.hasEndTag,
+                    playlist.tags, SystemClock.elapsedRealtime())?.let { safeSummary ->
+                    val timeline = player.currentTimeline
+                    val defaultPositionMs = if (player.currentMediaItemIndex in 0 until timeline.windowCount)
+                        timeline.getWindow(player.currentMediaItemIndex, Timeline.Window()).defaultPositionMs else C.TIME_UNSET
+                    Log.i("TwitchPlayback", safeSummary +
+                        " position_ms=${player.currentPosition} buffered_ms=${player.bufferedPosition}" +
+                        " live_offset_ms=${player.currentLiveOffset.takeUnless { it == C.TIME_UNSET } ?: -1}" +
+                        " default_position_ms=${defaultPositionMs.takeUnless { it == C.TIME_UNSET } ?: -1}" +
+                        " playing=${if (player.isPlaying) 1 else 0} play_requested=${if (player.playWhenReady) 1 else 0}")
+                }
+            }
+        }
         if (!backgrounded && player.playbackState == Player.STATE_BUFFERING) {
             val now = SystemClock.elapsedRealtime()
             if (bufferingStartedAtMs == 0L) bufferingStartedAtMs = now
@@ -382,6 +516,7 @@ class PlaybackSession(context: Context) {
             }
         } else bufferingStartedAtMs = 0L
         val status = when {
+            sourceRecoveryJob?.isActive == true -> PlaybackStatus.Buffering
             player.playerError != null || previous.error != null -> PlaybackStatus.Error
             player.playbackState == Player.STATE_BUFFERING -> PlaybackStatus.Buffering
             player.playbackState == Player.STATE_READY -> PlaybackStatus.Ready

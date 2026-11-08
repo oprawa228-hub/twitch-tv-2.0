@@ -30,14 +30,40 @@ class PlayerErrorFocusTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val device = UiDevice.getInstance(instrumentation)
 
-    @Test fun backFromSettingsAfterPlaybackErrorFocusesRetry() = exerciseClose()
+    @Test fun backFromClockAfterPlaybackErrorFocusesRetry() = exerciseClose("Часы", 6)
+    @Test fun backFromTheaterAfterPlaybackErrorFocusesRetry() = exerciseClose("Кинотеатр", 5)
+    @Test fun backFromChatAfterPlaybackErrorFocusesRetry() = exerciseClose("Чат поверх видео", 4)
 
-    @Test fun cancelFromSettingsAfterPlaybackErrorFocusesRetry() = exerciseClose(closeAction = "Отмена")
+    @Test fun firstOkRetriesWhenErrorArrivesAfterHudWasHidden() {
+        var owned: PlaybackSession? = null
+        val retries = AtomicInteger()
+        val exits = AtomicInteger()
+        try {
+            ActivityScenario.launch(CatalogFocusHostActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    val session=PlaybackSession(activity)
+                    owned=session
+                    activity.setContent { TwitchTheme {
+                        PlayerScreen(session,"Hidden HUD fixture","",onBack={exits.incrementAndGet()},
+                            onRetry={retries.incrementAndGet()})
+                    } }
+                }
+                assertTrue(device.wait(Until.hasObject(By.text("Hidden HUD fixture")),5_000))
+                device.pressBack()
+                assertTrue(device.wait(Until.gone(By.text("Hidden HUD fixture")),3_000))
+                scenario.onActivity { owned!!.play("asset:///missing-hidden-fixture.mp4","hidden-error",false) }
+                assertTrue(device.wait(Until.hasObject(By.text("Видео недоступно")),8_000))
+                settleRemoteMove()
+                device.pressDPadCenter()
+                val deadline=SystemClock.elapsedRealtime()+3_000
+                while(retries.get()==0 && SystemClock.elapsedRealtime()<deadline) SystemClock.sleep(40)
+                assertEquals("First OK must Retry, not reveal an invisible HUD",1,retries.get())
+                assertEquals(0,exits.get())
+            }
+        } finally { instrumentation.runOnMainSync { owned?.release() } }
+    }
 
-    @Test fun saveFromChatSettingsAfterPlaybackErrorFocusesRetry() =
-        exerciseClose(closeAction = "Сохранить", fromChat = true)
-
-    private fun exerciseClose(closeAction: String? = null, fromChat: Boolean = false) {
+    private fun exerciseClose(profile: String, steps: Int) {
         var ownedSession: PlaybackSession? = null
         val saves = AtomicInteger()
         val savedChatMode = AtomicReference<ChatMode?>()
@@ -58,14 +84,9 @@ class PlayerErrorFocusTest {
                     }
                 }
                 assertTrue(device.wait(Until.hasObject(By.text("Player focus fixture")), 5_000))
-                if (fromChat) {
-                    focusHudAction("Чат: вкл", stepsFromFirst = 4)
-                    device.executeShellCommand("input keyevent --longpress KEYCODE_DPAD_CENTER")
-                } else {
-                    focusHudAction("Настройки", stepsFromFirst = 6)
-                    device.pressDPadCenter()
-                }
-                assertTrue("Player settings did not open", device.wait(Until.hasObject(By.text("Просмотр")), 5_000))
+                focusHudAction(profile, stepsFromFirst = steps)
+                device.executeShellCommand("input keyevent --longpress KEYCODE_DPAD_CENTER")
+                assertTrue("Player profile did not open", device.wait(Until.hasObject(By.text(profile)), 5_000))
                 val session = requireNotNull(ownedSession)
                 scenario.onActivity {
                     session.play("asset:///missing-focus-fixture.mp4", "missing-focus-fixture", false)
@@ -75,16 +96,13 @@ class PlayerErrorFocusTest {
                     SystemClock.sleep(40)
                 }
                 assertEquals("Missing local asset did not produce a Media3 error", PlaybackStatus.Error, session.state.value.status)
-                assertTrue("The settings panel closed before the test action", device.hasObject(By.text("Просмотр")))
+                assertTrue("The settings panel closed before the test action", device.hasObject(By.text(profile)))
                 assertFalse("Error actions leaked through the modal panel", device.hasObject(By.text("Видео недоступно")))
 
-                if (closeAction == null) device.pressBack() else {
-                    focusFooterAction(closeAction)
-                    device.pressDPadCenter()
-                }
+                device.pressBack()
                 assertTrue("Error screen did not appear after closing settings",
                     device.wait(Until.hasObject(By.text("Видео недоступно")), 5_000))
-                assertTrue(device.wait(Until.gone(By.text("Просмотр")), 3_000))
+                assertTrue(device.wait(Until.gone(By.text(profile)), 3_000))
                 // This debug host's Surface interop omits UIA focused=true even when the native
                 // screenshot shows Compose focus. Assert the actual destination of one remote OK.
                 settleRemoteMove()
@@ -95,10 +113,7 @@ class PlayerErrorFocusTest {
                 }
                 assertEquals("The first OK after closing settings must invoke Retry", 1, retries.get())
                 assertEquals("Panel close or next OK unexpectedly invoked player exit", 0, exits.get())
-                assertEquals(if (closeAction == "Сохранить") 1 else 0, saves.get())
-                if (fromChat && closeAction == "Сохранить") {
-                    assertEquals("Long-OK release must not toggle the first setting", ChatMode.OVERLAY, savedChatMode.get())
-                }
+                assertEquals("Long-OK release and closing a profile must not change settings", 0, saves.get())
             }
         } finally {
             // ActivityScenario closes/disposes Compose first; Media3 is then released on main.
@@ -108,9 +123,9 @@ class PlayerErrorFocusTest {
 
     private fun focusHudAction(label: String, stepsFromFirst: Int) {
         // Exact fixture: idle VOD HUD has seven actions in this order:
-        // -10, Watch, +10, Quality, Chat, Theater, Settings. Clamp to its left edge using
+        // -10, Watch, +10, Quality, Chat, Theater, Clock. Clamp to its left edge using
         // real remote events, then traverse to the intended action. Opening the intended
-        // panel and its save callback provide the behavioral assertion, not a UIA focus flag.
+        // panel and zero mutation callbacks provide the behavioral assertion, not a UIA focus flag.
         saveNavigationDiagnostics("hud-initial", label)
         repeat(16) { device.pressDPadLeft() }
         settleRemoteMove()
@@ -119,18 +134,6 @@ class PlayerErrorFocusTest {
             settleRemoteMove()
         }
         saveNavigationDiagnostics("hud-target", label)
-    }
-
-    private fun focusFooterAction(label: String) {
-        // Overview has a finite vertical list and fixed Save/Cancel footer. No settings
-        // values are changed by these DOWN moves; horizontal input occurs only at the footer.
-        repeat(16) { device.pressDPadDown() }
-        settleRemoteMove()
-        repeat(16) { device.pressDPadLeft() }
-        settleRemoteMove()
-        if (label == "Отмена") device.pressDPadRight()
-        settleRemoteMove()
-        saveNavigationDiagnostics("footer-target", label)
     }
 
     private fun settleRemoteMove() {

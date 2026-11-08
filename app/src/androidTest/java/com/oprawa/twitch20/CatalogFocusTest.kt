@@ -3,10 +3,12 @@ package com.oprawa.twitch20
 import android.os.SystemClock
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -24,6 +26,7 @@ import com.oprawa.twitch20.ui.CatalogScreen
 import com.oprawa.twitch20.ui.NavigationRail
 import com.oprawa.twitch20.ui.TwitchTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -70,17 +73,53 @@ class CatalogFocusTest {
         assertFocusRemains(requireNotNull(railDescription))
     }
 
-    private fun withCatalog(selectedKey: String? = null, check: (Fixture) -> Unit) {
+    @Test fun railFocusPreviewsWithoutOkAndBackRestoresTheSelectedCard() =
+        withCatalog("channel:item7", previewRoutes = true) { fixture ->
+            val longPage = (1..18).map {
+                Channel("item$it", "item$it", "Fixture item$it", "Rail preview fixture", "Test", "")
+            }
+            fixture.publish(channels = longPage)
+            assertTrue(device.wait(Until.hasObject(By.focused(true).descStartsWith("Fixture item7,")), 5_000))
+            val originalTop = device.findObject(By.focused(true))!!.visibleBounds.top
+            assertFalse("Account must be nested in Settings", device.hasObject(By.desc("Аккаунт")))
+            assertFalse("About must be nested in Settings", device.hasObject(By.desc("О приложении")))
+            // Item 7 is in the first column for both 3- and 2-column accessibility layouts.
+            device.pressDPadLeft()
+            focusCategoriesInRail()
+            assertTrue("Focus did not preview the section without OK",
+                device.wait(Until.hasObject(By.text("Focus fixture · categories")), 5_000))
+            assertTrue(device.wait(Until.hasObject(By.text("Preview item1")), 5_000))
+            assertFocusRemains("Категории")
+            device.pressBack()
+            assertTrue("Back did not return the previous section",
+                device.wait(Until.hasObject(By.text("Focus fixture")), 5_000))
+            assertTrue("Back did not restore the selected card",
+                device.wait(Until.hasObject(By.focused(true).descStartsWith("Fixture item7,")), 5_000))
+            assertEquals("Back moved the original grid row", originalTop,
+                device.findObject(By.focused(true))!!.visibleBounds.top)
+        }
+
+    private fun withCatalog(selectedKey: String? = null, previewRoutes: Boolean = false, check: (Fixture) -> Unit) {
         val fixture = Fixture(selectedKey)
         ActivityScenario.launch(CatalogFocusHostActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
                     TwitchTheme {
                         var railOwnsFocus by remember { mutableStateOf(false) }
-                        // This harness stays on one catalog route; page revision must not reset
-                        // manual navigation. MainActivity additionally resets on route/modal entry.
+                        var route by remember { mutableStateOf("streams") }
+                        var previewOrigin by remember { mutableStateOf<String?>(null) }
+                        // Page revision must not reset deliberate navigation. The route-enabled
+                        // case also exercises Back from a rail preview to the original catalog.
                         var userNavigated by remember { mutableStateOf(false) }
                         val page = fixture.page.value
+                        // Host route bookkeeping mirrors MainActivity; the actual rail, grid,
+                        // delayed focus restore and every input remain production controls.
+                        BackHandler(enabled = previewOrigin != null && railOwnsFocus) {
+                            route = requireNotNull(previewOrigin)
+                            previewOrigin = null
+                            railOwnsFocus = false
+                            userNavigated = false
+                        }
                         Row(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
                             if (event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN &&
                                 event.nativeKeyEvent.keyCode in listOf(AndroidKeyEvent.KEYCODE_DPAD_UP,
@@ -88,16 +127,30 @@ class CatalogFocusTest {
                                     AndroidKeyEvent.KEYCODE_DPAD_RIGHT)) userNavigated = true
                             false
                         }) {
-                            NavigationRail(selected = "streams", accountName = "",
+                            NavigationRail(selected = route, accountName = "",
                                 onSelect = { userNavigated = false },
-                                onFocusOwnership = { railOwnsFocus = it })
+                                onPreview = { section ->
+                                    if (previewRoutes && userNavigated && route != section) {
+                                        if (previewOrigin == null) previewOrigin = route
+                                        route = section
+                                    }
+                                },
+                                onFocusOwnership = {
+                                    railOwnsFocus = it
+                                    if (!it) previewOrigin = null
+                                })
                             Box(Modifier.weight(1f)) {
-                                CatalogScreen(title = "Focus fixture", channels = page.channels,
-                                    busy = page.busy, error = page.error, revision = page.revision,
-                                    selectedKey = fixture.selected.value,
-                                    onFocused = { fixture.selected.value = it },
-                                    allowFocusRestore = !railOwnsFocus || !userNavigated,
-                                    onChannel = {}, onCategory = {}, onVideo = {}, onRetry = {})
+                                key(route) {
+                                    CatalogScreen(title = if (route == "streams") "Focus fixture" else "Focus fixture · $route",
+                                        channels = if (route == "streams") page.channels else page.channels.map {
+                                            it.copy(id = "preview-${it.id}", name = "Preview ${it.login}")
+                                        },
+                                        busy = page.busy, error = page.error, revision = page.revision,
+                                        selectedKey = if (route == "streams") fixture.selected.value else null,
+                                        onFocused = { if (route == "streams") fixture.selected.value = it },
+                                        allowFocusRestore = !railOwnsFocus || !userNavigated,
+                                        onChannel = {}, onCategory = {}, onVideo = {}, onRetry = {})
+                                }
                             }
                         }
                     }
@@ -176,7 +229,6 @@ class CatalogFocusTest {
         val channels = listOf("first", "second", "third").map {
             Channel(it, it, "Fixture $it", "Focus restoration fixture", "Test", "")
         }
-        val railDescriptions = setOf("Эфиры", "Поиск", "Категории", "Отслеживаемые",
-            "Войти в Twitch", "Настройки", "О приложении")
+        val railDescriptions = setOf("Эфиры", "Поиск", "Категории", "Отслеживаемые", "Настройки")
     }
 }

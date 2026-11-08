@@ -36,9 +36,9 @@ import com.oprawa.twitch20.settings.ChatPosition
 
 /** Shared normalized geometry for the actual player and the 960 × 540 settings stage. */
 object ChatLayout {
-    const val overlayWidthFraction = .24f
-    const val overlayHeightFraction = .52f
-    const val theaterWidthFraction = .24f
+    const val theaterWidthFraction = .20f
+    fun overlayWidth(settings: AppSettings): Float = settings.overlaySize.widthFraction
+    fun overlayHeight(settings: AppSettings): Float = settings.overlaySize.heightFraction
     val inset = 20.dp
 
     fun alignment(position: ChatPosition): Alignment = when (position) {

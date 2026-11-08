@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,7 +54,7 @@ import kotlin.math.sin
 
 private data class RailEntry(val key: String, val label: String, val accessibility: String = label)
 
-/** Stable 84dp rail; selection never changes simply because the D-pad moves focus. */
+/** Focus previews content sections; Settings remains the single bottom destination. */
 @Composable
 fun NavigationRail(
     selected: String,
@@ -59,18 +62,16 @@ fun NavigationRail(
     accountName: String,
     modifier: Modifier = Modifier,
     onFocusOwnership: (Boolean) -> Unit = {},
+    onPreview: (String) -> Unit = {},
 ) {
     val entries = listOf(
         RailEntry("streams", "Эфиры"),
         RailEntry("search", "Поиск"),
         RailEntry("categories", "Категории"),
         RailEntry("following", "Каналы", "Отслеживаемые"),
-        RailEntry("account", if (accountName.isBlank()) "Войти" else "Аккаунт",
-            if (accountName.isBlank()) "Войти в Twitch" else "Аккаунт: $accountName"),
         RailEntry("settings", "Настройки"),
-        RailEntry("about", "О проекте", "О приложении"),
     )
-    val requesters = remember { List(7) { FocusRequester() } }
+    val requesters = remember { List(5) { FocusRequester() } }
     Column(modifier.width(84.dp).fillMaxHeight().background(TvColors.Surface)
         .onFocusChanged { onFocusOwnership(it.hasFocus) }
         .onPreviewKeyEvent {
@@ -91,6 +92,7 @@ fun NavigationRail(
             RailItem(entry, entry.key == selected, requesters[index],
                 previous = requesters.getOrNull(index - 1) ?: FocusRequester.Cancel,
                 next = requesters.getOrNull(index + 1) ?: FocusRequester.Cancel,
+                onPreview = { if(entry.key != "settings") onPreview(entry.key) },
                 onSelect = { onFocusOwnership(false); onSelect(entry.key) })
         }
     }
@@ -98,8 +100,10 @@ fun NavigationRail(
 
 @Composable
 private fun RailItem(entry: RailEntry, active: Boolean, requester: FocusRequester,
-    previous: FocusRequester, next: FocusRequester, onSelect: () -> Unit) {
+    previous: FocusRequester, next: FocusRequester, onPreview: () -> Unit, onSelect: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
+    val preview by rememberUpdatedState(onPreview)
+    LaunchedEffect(focused) { if(focused) { delay(120); preview() } }
     val ink = when { focused -> TvColors.Background; active -> TvColors.Link; else -> TvColors.Text }
     Column(Modifier.fillMaxWidth().height(54.dp)
         .focusRequester(requester)

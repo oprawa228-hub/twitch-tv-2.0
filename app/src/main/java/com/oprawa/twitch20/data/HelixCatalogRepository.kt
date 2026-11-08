@@ -62,7 +62,7 @@ class HelixCatalogRepository(
             live?.let { TwitchJson.text(it, "game_name") }.orEmpty(),
             if (live == null) TwitchJson.text(user, "profile_image_url")
                 else thumbnail(TwitchJson.text(live, "thumbnail_url"), 640, 360),
-            live?.let { HelixCatalogJson.count(it, "viewer_count") } ?: 0, live != null)
+            live?.let { HelixCatalogJson.count(it, "viewer_count") } ?: 0, live != null, avatarUrl = TwitchJson.text(user, "profile_image_url"))
     }
 
     suspend fun videosPage(login: String, after: String? = null): CatalogPage<Video> {

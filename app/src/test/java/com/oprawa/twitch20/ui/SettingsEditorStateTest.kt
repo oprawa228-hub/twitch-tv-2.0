@@ -11,7 +11,7 @@ class SettingsEditorStateTest {
         assertTrue(state.back())
         assertEquals(SettingsEditorPage.OVERVIEW, state.page)
         assertEquals("THEATER", state.overviewFocus)
-        assertFalse("Root Back belongs to the enclosing draft cancellation", state.back())
+        assertFalse("Root Back leaves settings without reverting confirmed values", state.back())
     }
 
     @Test fun switchingPagesDoesNotCreateAnExtraBackStackLevel() {
@@ -32,5 +32,14 @@ class SettingsEditorStateTest {
         assertEquals(SettingsEditorPage.OVERVIEW, state.page)
         assertNull(state.overviewFocus)
         assertFalse(state.back())
+    }
+
+    @Test fun clockHasAnIndependentPageAndReturnsToItsLauncher() {
+        val state = SettingsEditorState()
+        state.open(SettingsEditorPage.CLOCK)
+        assertEquals(SettingsEditorPage.CLOCK, state.page)
+        assertTrue(state.back())
+        assertEquals("CLOCK", state.overviewFocus)
+        assertEquals(SettingsEditorPage.OVERVIEW, state.page)
     }
 }

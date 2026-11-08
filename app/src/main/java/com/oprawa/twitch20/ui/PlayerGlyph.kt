@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.cos
 import kotlin.math.sin
 
-internal enum class PlayerGlyph { PLAY, PAUSE, BACK, FORWARD, QUALITY, CHAT, THEATER, SETTINGS }
+internal enum class PlayerGlyph { PLAY, PAUSE, BACK, FORWARD, QUALITY, CHAT, THEATER, CLOCK, VIEWERS, SETTINGS }
 
 /** Offline optical 24-unit family. Labels belong to the surrounding focusable button. */
 @Composable
@@ -49,6 +49,15 @@ internal fun PlayerGlyph(kind: PlayerGlyph, color: Color, large: Boolean = false
                 PlayerGlyph.THEATER -> {
                     drawRect(color, Offset(2f,5f), Size(20f,14f), style=Stroke(1.8f))
                     line(15f,5f,15f,19f); line(18f,9f,19f,9f); line(18f,12f,19f,12f)
+                }
+                PlayerGlyph.CLOCK -> {
+                    drawCircle(color,9f,Offset(12f,12f),style=Stroke(1.8f))
+                    line(12f,6f,12f,12f); line(12f,12f,16f,14f)
+                }
+                PlayerGlyph.VIEWERS -> {
+                    drawPath(Path().apply { moveTo(2f,12f); quadraticTo(12f,1f,22f,12f)
+                        quadraticTo(12f,23f,2f,12f); close() }, color, style=Stroke(1.8f))
+                    drawCircle(color,3f,Offset(12f,12f),style=Stroke(1.8f))
                 }
                 PlayerGlyph.SETTINGS -> {
                     drawCircle(color,6f,Offset(12f,12f),style=Stroke(1.8f))

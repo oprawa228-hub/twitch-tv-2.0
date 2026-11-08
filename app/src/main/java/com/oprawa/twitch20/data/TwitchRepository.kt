@@ -219,6 +219,7 @@ internal object TwitchJson {
             imageUrl = stream?.let { text(it, "previewImageURL") }?.takeIf(String::isNotBlank) ?: text(user, "profileImageURL"),
             viewers = stream?.optInt("viewersCount", 0)?.coerceAtLeast(0) ?: 0,
             live = stream != null,
+            avatarUrl = text(user, "profileImageURL"),
         )
     }
 

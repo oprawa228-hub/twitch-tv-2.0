@@ -35,8 +35,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.saveable.listSaver
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,24 +54,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
-import com.oprawa.twitch20.BuildConfig
 import com.oprawa.twitch20.chat.ChatMessage
 import com.oprawa.twitch20.settings.AppSettings
 import com.oprawa.twitch20.settings.ChatMode
 import com.oprawa.twitch20.settings.ChatPosition
-import com.oprawa.twitch20.settings.ChatStyle
 import kotlinx.coroutines.delay
-
-private val SettingsDraftSaver = listSaver<AppSettings, Any>(
-    save = { listOf(it.chatMode.name, it.overlayStyle.textSizeSp, it.overlayStyle.opacity,
-        it.theaterStyle.textSizeSp, it.theaterStyle.opacity, it.chatPosition.name,
-        it.showClock, it.animationsEnabled) },
-    restore = { AppSettings(chatMode = ChatMode.valueOf(it[0] as String),
-        overlayStyle = ChatStyle(it[1] as Int, it[2] as Float),
-        theaterStyle = ChatStyle(it[3] as Int, it[4] as Float),
-        chatPosition = ChatPosition.valueOf(it[5] as String), showClock = it[6] as Boolean,
-        animationsEnabled = it[7] as Boolean) },
-)
 
 @Composable
 fun SettingsScreen(
@@ -81,53 +66,42 @@ fun SettingsScreen(
     onSave: (AppSettings) -> Unit,
     onBack: () -> Unit,
     onCheckUpdates: () -> Unit,
+    onAccount: (() -> Unit)? = null,
+    onAbout: (() -> Unit)? = null,
 ) {
-    var draft by rememberSaveable(settings, stateSaver = SettingsDraftSaver) { mutableStateOf(settings) }
     var transientPreview by remember { mutableStateOf<AppSettings?>(null) }
     val editor = rememberSettingsEditorState()
     val first = remember { FocusRequester() }
     BackHandler { if (!editor.back()) onBack() }
     Row(Modifier.fillMaxSize().background(TvColors.Background).padding(24.dp),
         horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-        Column(Modifier.weight(.41f).fillMaxHeight()) {
+        Column(Modifier.weight(.41f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("Настройки", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = TvColors.Text)
-            Text(if (draft != settings) "Есть несохранённые изменения" else "Выберите раздел или режим чата",
-                color = TvColors.Muted, fontSize = 13.sp, lineHeight = 18.sp,
-                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                ChatSettingsControls(draft, { draft = it }, first, state = editor, onCheckUpdates = onCheckUpdates,
-                    onPreviewSettings = { transientPreview = it })
-            }
-            Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                TvAction("Сохранить", { onSave(draft) }, Modifier.weight(1f))
-                TvAction("Отмена", onBack, Modifier.weight(1f))
+                ChatSettingsControls(settings, onSave, first, state = editor, onCheckUpdates = onCheckUpdates,
+                    onPreviewSettings = { transientPreview = it }, onAccount = onAccount, onAbout = onAbout)
             }
         }
         Column(Modifier.weight(.59f).fillMaxHeight().padding(top = 4.dp).verticalScroll(rememberScrollState())) {
-            Text("Предпросмотр", color = TvColors.Text, fontSize = 21.sp, fontWeight = FontWeight.Bold)
             val shownMode = when (editor.page) {
                 SettingsEditorPage.OVERLAY -> ChatMode.OVERLAY
                 SettingsEditorPage.THEATER -> ChatMode.THEATER
-                else -> draft.chatMode
+                SettingsEditorPage.CLOCK -> ChatMode.OFF
+                else -> settings.chatMode
             }
-            Text("Пример: ${chatModeLabel(shownMode)}", color = TvColors.Link,
-                fontSize = 16.sp, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
-            SettingsPreview((transientPreview ?: draft).copy(chatMode = shownMode))
-            Text("После сохранения: ${chatModeLabel(draft.chatMode)}", color = TvColors.Text,
-                fontSize = 14.sp, modifier = Modifier.padding(top = 12.dp))
-            Text(if (shownMode != draft.chatMode) "Вы редактируете неактивный профиль. Его режим не включится."
-                else "Сохранить — применить все изменения. Отмена — оставить прежние настройки.",
-                color = TvColors.Muted, fontSize = 13.sp, lineHeight = 18.sp,
-                modifier = Modifier.padding(top = 6.dp))
-            val hint = if (editor.page == SettingsEditorPage.OVERVIEW) {
-                val action = if (editor.overviewFocus == null || editor.overviewFocus?.startsWith("MODE_") == true)
-                    "OK включить / выключить · ↓ выбрать раздел" else "OK открыть раздел"
-                "$action\nНазад — отменить все изменения"
-            } else "Выберите параметр · OK открыть / выбрать\nНазад — к обзору, изменения останутся"
-            Text(hint,
-                color = TvColors.Muted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 14.dp))
-            Text("Twitch 2.0 · ${BuildConfig.VERSION_NAME}",
-                color = TvColors.Muted, fontSize = 11.sp, modifier = Modifier.padding(top = 12.dp))
+            val title = when (editor.page) {
+                SettingsEditorPage.OVERVIEW -> "Ваш эфир"
+                SettingsEditorPage.INTERFACE -> "Интерфейс"
+                SettingsEditorPage.CLOCK -> "Часы"
+                else -> chatModeLabel(shownMode)
+            }
+            Text(title, color = TvColors.Text, fontSize = 21.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 16.dp))
+            SettingsPreview((transientPreview ?: settings).copy(chatMode = shownMode))
+            if (editor.page in listOf(SettingsEditorPage.OVERLAY, SettingsEditorPage.THEATER) && shownMode != settings.chatMode) {
+                Text("Профиль выключен", color = TvColors.Muted, fontSize = 14.sp,
+                    modifier = Modifier.padding(top = 12.dp))
+            }
         }
     }
 }
@@ -142,7 +116,8 @@ internal fun SettingChoice(label: String, value: String, modifier: Modifier = Mo
             val key = event.nativeKeyEvent
             when (key.keyCode) {
                 AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    if (key.action == AndroidKeyEvent.ACTION_DOWN) change(if (key.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT) -1 else 1)
+                    if (key.action == AndroidKeyEvent.ACTION_DOWN && key.repeatCount == 0)
+                        change(if (key.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT) -1 else 1)
                     true
                 }
                 AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
@@ -235,8 +210,8 @@ private fun SettingsPreview(settings: AppSettings) {
                         animationSpec = if (motionEnabled) tween(200, easing = FastOutSlowInEasing) else snap(), label = "preview-chat-horizontal")
                     val vertical by animateFloatAsState(if (bottom) 1f else 0f,
                         animationSpec = if (motionEnabled) tween(200, easing = FastOutSlowInEasing) else snap(), label = "preview-chat-vertical")
-                    val chatWidth = (960 * ChatLayout.overlayWidthFraction).dp
-                    val chatHeight = (540 * ChatLayout.overlayHeightFraction).dp
+                    val chatWidth = (960 * ChatLayout.overlayWidth(settings)).dp
+                    val chatHeight = (540 * ChatLayout.overlayHeight(settings)).dp
                     ChatPanel(messages, settings, Modifier
                         .offset(x = (maxWidth - chatWidth) * horizontal, y = (maxHeight - chatHeight) * vertical)
                         .width(chatWidth).height(chatHeight))

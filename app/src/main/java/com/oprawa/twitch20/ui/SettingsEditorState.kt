@@ -8,9 +8,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 
-enum class SettingsEditorPage { OVERVIEW, OVERLAY, THEATER, INTERFACE }
+enum class SettingsEditorPage { OVERVIEW, OVERLAY, THEATER, INTERFACE, CLOCK }
 
-/** Navigation only: the enclosing settings session owns its single unsaved draft. */
+/** Navigation only. Confirmed choices are persisted immediately by the enclosing screen. */
 @Stable
 class SettingsEditorState(initialPage: SettingsEditorPage = SettingsEditorPage.OVERVIEW) {
     var page by mutableStateOf(initialPage)

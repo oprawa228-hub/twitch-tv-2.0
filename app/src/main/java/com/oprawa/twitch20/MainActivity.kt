@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
 private data class Route(val kind: String, val value: String = "", val title: String = "") {
     val key get() = "$kind:$value"
 }
-private data class Watching(val id: String, val kind: String, val login: String, val title: String, val subtitle: String)
+private data class Watching(val id: String, val kind: String, val login: String, val title: String, val subtitle: String, val channel: Channel? = null)
 
 @Composable
 private fun TwitchApp() {
@@ -81,11 +81,13 @@ private fun TwitchApp() {
     val selections = remember { mutableStateMapOf<String,String>() }
     var watching by remember { mutableStateOf<Watching?>(null) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var accountOpen by remember { mutableStateOf(false) }
+    var railPreviewOrigin by remember { mutableStateOf<Route?>(null) }
     var aboutOpen by remember { mutableStateOf(false) }
     var exitOpen by remember { mutableStateOf(false) }
     // Android may place initial focus in the first rail item before data arrives.
     // Only a deliberate remote move should prevent the catalog's initial restoration.
-    var userNavigated by remember(route.key, watching, settingsOpen, aboutOpen, exitOpen) { mutableStateOf(false) }
+    var userNavigated by remember(watching, settingsOpen, aboutOpen, accountOpen, exitOpen) { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     // Identity is part of the cache boundary: logout cannot leave a personal catalog behind.
     val catalogCache = remember(authState.loggedIn, authState.displayName) { linkedMapOf<String, CatalogPager<CatalogItem>>() }
@@ -150,15 +152,24 @@ private fun TwitchApp() {
     fun closeSettings() { settingsOpen=false; catalogState.removeState("settings-panel") }
 
     fun navigate(next: Route, push: Boolean = true) {
+        // Explicit navigation restores content focus. Only a deliberate rail hover keeps it.
+        userNavigated = false
+        railPreviewOrigin = null
         if (push) history.add(route) else history.clear()
         route = next
     }
     fun back() {
-        if (history.isNotEmpty()) route = history.removeAt(history.lastIndex)
-        else exitOpen=true
+        if (railPreviewOrigin != null && railOwnsFocus) {
+            route=railPreviewOrigin!!;railPreviewOrigin=null;railOwnsFocus=false;userNavigated=false
+            return
+        }
+        if (history.isNotEmpty()) {
+            userNavigated=false
+            route = history.removeAt(history.lastIndex)
+        } else exitOpen=true
     }
     fun openChannel(ch: Channel) {
-        if(ch.live) watching = Watching(ch.login,"live",ch.login,ch.name,ch.title)
+        if(ch.live) watching = Watching(ch.login,"live",ch.login,ch.title,ch.name,ch)
         else navigate(Route("channel",ch.login,ch.name))
     }
     DisposableEffect(auth) { onDispose { auth.close() } }
@@ -170,13 +181,13 @@ private fun TwitchApp() {
         if (!pager.state.value.initialized) pager.loadNext()
     }
     DisposableEffect(pager) { onDispose { pageJob?.cancel(); pager.cancel() } }
-    BackHandler(enabled=watching==null && !settingsOpen && !aboutOpen) { back() }
+    BackHandler(enabled=watching==null && !settingsOpen && !aboutOpen && !accountOpen) { back() }
     Box(Modifier.fillMaxSize().background(TvColors.Background)) {
         val active=watching
-        if(!settingsOpen && !aboutOpen && !exitOpen) {
+        if(!settingsOpen && !aboutOpen && !accountOpen && !exitOpen) {
         if(active!=null) {
             key(active.id,active.kind) {
-                Viewing(active,repository,settingsStore,onBack={watching=null},onSettings={settingsOpen=true})
+                Viewing(active,repository,settingsStore,onBack={watching=null})
             }
         } else Row(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
             if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
@@ -186,7 +197,11 @@ private fun TwitchApp() {
             false
         }) {
             NavigationRail(selected=if(route.kind=="category")"categories" else route.kind,
-                onFocusOwnership={railOwnsFocus=it},
+                onFocusOwnership={ owns -> railOwnsFocus=owns; if(!owns && railPreviewOrigin!=null) { history.clear(); railPreviewOrigin=null } },
+                onPreview={ section -> if(userNavigated && route.kind != section) {
+                    if(railPreviewOrigin==null) railPreviewOrigin=route
+                    route=Route(section,title=when(section){"streams"->"Прямые эфиры";"search"->"Поиск";"categories"->"Категории";else->"Отслеживаемые"})
+                } },
                 accountName=if(authState.loggedIn)authState.displayName else "",
                 onSelect={section -> userNavigated=false; when(section) {
                     "settings" -> settingsOpen=true
@@ -197,7 +212,7 @@ private fun TwitchApp() {
                 if(route.kind=="account") {
                     AccountScreen(auth)
                 } else if(route.kind=="following" && !authState.loggedIn) {
-                    MessageScreen("Ваши каналы", "Войдите в Twitch по коду с телефона или компьютера.", "Войти") { navigate(Route("account",title="Аккаунт")) }
+                    MessageScreen("Ваши каналы", "Войдите в Twitch по коду с телефона или компьютера.", "Войти", autoFocus=!railOwnsFocus || !userNavigated) { navigate(Route("account",title="Аккаунт")) }
                 } else {
                     if(route.kind=="search") Row(Modifier.fillMaxWidth().padding(24.dp,8.dp),horizontalArrangement=Arrangement.spacedBy(14.dp),verticalAlignment=Alignment.CenterVertically) {
                         OutlinedTextField(value=query,onValueChange={query=it.take(100)},singleLine=true,
@@ -222,6 +237,7 @@ private fun TwitchApp() {
                             onRefresh={pageJob?.cancel();pager.reset();loadMore()},
                             guestLimited=!authState.loggedIn && route.kind in setOf("streams","category","categories","channel","clips"),
                             revision=page.revision,
+                            previewEnabled=settings.cardPreviewEnabled, resolvePreview={ repository.resolveLive(it.login) },
                             allowFocusRestore=!railOwnsFocus || !userNavigated,
                             onChannelDetails={navigate(Route("channel",it.login,it.name))})
                     } } }
@@ -229,11 +245,16 @@ private fun TwitchApp() {
             }
         }
         }
-        if(settings.showClock && watching==null && !settingsOpen && !aboutOpen && !exitOpen) Text(clock,color=TvColors.Muted,fontSize=16.sp,modifier=Modifier.align(Alignment.TopEnd).padding(end=28.dp,top=18.dp))
-        if(settingsOpen && !aboutOpen) Box(Modifier.fillMaxSize().background(TvColors.Background)) {
+        if(settings.showClock && watching==null && !settingsOpen && !aboutOpen && !accountOpen && !exitOpen) Text(clock,color=TvColors.Muted,fontSize=16.sp,modifier=Modifier.align(Alignment.TopEnd).padding(end=28.dp,top=18.dp))
+        if(settingsOpen && !aboutOpen && !accountOpen) Box(Modifier.fillMaxSize().background(TvColors.Background)) {
             catalogState.SaveableStateProvider("settings-panel") {
-                SettingsScreen(settings,onSave={settingsStore.save(it);closeSettings()},onBack={closeSettings()},onCheckUpdates={aboutOpen=true})
+                SettingsScreen(settings,onSave={settingsStore.save(it)},onBack={closeSettings()},onCheckUpdates={aboutOpen=true},
+                    onAccount={accountOpen=true},onAbout={aboutOpen=true})
             }
+        }
+        if(accountOpen) Box(Modifier.fillMaxSize().background(TvColors.Background)) {
+            BackHandler { accountOpen=false }
+            AccountScreen(auth)
         }
         if(aboutOpen) Box(Modifier.fillMaxSize().background(TvColors.Background)) {
             BackHandler { aboutOpen=false }
@@ -257,9 +278,17 @@ private fun TwitchApp() {
     }
 }
 
-@Composable private fun Viewing(target:Watching,repository:TwitchRepository,store:SettingsStore,onBack:()->Unit,onSettings:()->Unit) {
+@Composable private fun Viewing(target:Watching,repository:TwitchRepository,store:SettingsStore,onBack:()->Unit) {
     val context=LocalContext.current
     val session=remember { PlaybackSession(context) }
+    var metadata by remember(target.id) { mutableStateOf(target.channel) }
+    LaunchedEffect(target.login) {
+        if(target.login.isNotBlank()) while(true) {
+            try { metadata=repository.channel(target.login) }
+            catch(cancel:CancellationException) { throw cancel } catch(_:Exception) { }
+            delay(60_000)
+        }
+    }
     val chat=remember { ChatClient() }
     val settings by store.state.collectAsStateWithLifecycle()
     val messages by chat.messages.collectAsStateWithLifecycle()
@@ -315,9 +344,12 @@ private fun TwitchApp() {
     BackHandler(enabled=resolving||error!=null){onBack()}
     if(error!=null) MessageScreen("Видео недоступно",error!!,"Повторить"){retry++}
     else if(resolving) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("Подключение к Twitch…",color=TvColors.Text)}
-    else PlayerScreen(session,target.title,target.subtitle,onBack,
+    else PlayerScreen(session,if(target.kind=="live") metadata?.title?.takeIf { it.isNotBlank() } ?: target.title else target.title,target.subtitle,onBack,
         chatContent=if(target.kind=="live") ({previewSettings -> ChatPanel(messages,previewSettings,status=chatStatus)}) else null,
-        settings=settings,onSettings=onSettings,onSettingsChange={store.save(it)},
+        settings=settings,onSettingsChange={store.save(it)},
+        channelName=metadata?.name ?: target.subtitle, avatarUrl=metadata?.avatarUrl.orEmpty(),
+        category=if(target.kind=="live") metadata?.category.orEmpty() else "",
+        viewers=if(target.kind=="live") metadata?.viewers else null,
         onChatPreview={chatPreviewEnabled=it},onRetry={savePosition();retry++})
 }
 
@@ -378,9 +410,9 @@ private fun TwitchApp() {
     }
 }
 
-@Composable private fun MessageScreen(title:String,message:String,action:String,onAction:()->Unit) {
+@Composable private fun MessageScreen(title:String,message:String,action:String,autoFocus:Boolean=true,onAction:()->Unit) {
     val first=remember { FocusRequester() }
-    LaunchedEffect(Unit) { first.requestFocus() }
+    LaunchedEffect(autoFocus) { if(autoFocus) first.requestFocus() }
     Column(Modifier.fillMaxSize().padding(40.dp),verticalArrangement=Arrangement.spacedBy(24.dp)) {
         Text(title,fontSize=28.sp,color=TvColors.Text);Text(message,color=TvColors.Muted,fontSize=18.sp);TvAction(action,onAction,modifier=Modifier.focusRequester(first))
     }
