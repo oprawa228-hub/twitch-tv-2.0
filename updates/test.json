@@ -1,9 +1,9 @@
 {
   "packageName": "com.oprawa.twitch20",
-  "versionCode": 4,
-  "versionName": "0.1.0-beta.2",
+  "versionCode": 5,
+  "versionName": "0.1.0-beta.3",
   "minSdk": 23,
-  "apkUrl": "https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.2/Twitch20-0.1.0-beta.2.apk",
-  "sha256": "c2ff1871db96b00d6a273c6068a46def6b8657e7cc08ebfb55f0c557d7e5079f",
+  "apkUrl": "https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.3/Twitch20-0.1.0-beta.3.apk",
+  "sha256": "9b5fc5fc7b836a60b1bb0971cedd0cf3e5e491d298138a72dfb8e3ee8c1cf844",
   "certificateSha256": "f81f51fd47d318aaf79f1fe3c81159fe6eca405f881f4f0b19d097d1c4b006f7"
 }

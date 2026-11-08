@@ -1,34 +1,34 @@
-# Состояние Twitch 2.0 для продолжения
+# Передача результата Twitch 2.0
 
-Обновлено 2026-11-08. Работа продолжается по [TASK.txt](TASK.txt) и единственному [PLAN.md](PLAN.md). **Полное поручение не выполнено:** первый signed APK уже работает, но остаются полный объём проверки, измерения и настоящий GitHub → in-app OTA переход.
+2026-11-08: beta доставлен. Финальный [v0.1.0-beta.3/code5](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/tag/v0.1.0-beta.3) опубликован; реальные OTA alpha.2/code2 → beta.2/code4 → beta.3/code5 выполнены через приложение и системный installer. [Результаты](TEST_RESULTS.md), [измерения](PERFORMANCE.md), [выполненный план](PLAN.md), [публикация](RELEASING.md).
 
-## Что уже есть
+## Финальный артефакт
 
-- Самостоятельный проект `D:/Project/Twitch TV 2.0`, пакет `com.oprawa.twitch20`. Старый проект — read-only ориентир, не база кода и не канал публикации.
-- AGP 8.13.2, Gradle 8.13, JDK 17, Kotlin/Compose compiler 2.3.10, SDK 36/min SDK 23, Compose BOM 2026.06.01, TV 1.1.0, Media3 1.11.1, **OkHttp 4.12.1**, Coil 3.4.0. Не возвращать 5.5.1: Android AAR требует SDK 37.
-- Реальные каталог/live/IRC, auth/Helix, источник видео, плеер/панели, settings previews, bounded history, updater. Наличие кода не означает полной проверки; [TEST_RESULTS.md](TEST_RESULTS.md).
-- На signed minified release в отдельном TV emulator состоялись live + chat и Back в каталог. Найденный TLS close crash на UI исправлен и повторно проверен. Одно first-frame наблюдение — 1625 мс после resolve, не benchmark.
-- Реальный вход `oprawa` завершён; Helix загрузил отслеживаемый live-канал. Затем пользователь попросил пропустить дальнейшую проверку аккаунта. Не просить повторно логин/пароль/токен и не описывать вход как непроверенный. Refresh/expiry/revoke остаются отдельными непроверенными сценариями.
-- Последние JVM: **38/38 PASS**, XML timestamp 13:20:55 UTC. После исправления focus helper последний diagnostic Android run: **2/2 PASS, 26.628 с**. Прежние два failures уже не latest; debug run не заменяет staged release QA или process-restart.
+[APK](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.3/Twitch20-0.1.0-beta.3.apk), 2 717 565 байт, SHA-256 `9b5fc5fc7b836a60b1bb0971cedd0cf3e5e491d298138a72dfb8e3ee8c1cf844`. Public/downloaded/installed APK одинаковы; versionCode5/min23/target36, installer `com.google.android.packageinstaller`. Apksigner v1/v2 PASS, certificate SHA-256 `f81f51fd47d318aaf79f1fe3c81159fe6eca405f881f4f0b19d097d1c4b006f7`.
 
-## Артефакты и среда
+Source release-tag commit: [13545b8c14942af0529be204d85c91b24a9f3fee](https://github.com/oprawa228-hub/twitch-tv-2.0/commit/13545b8c14942af0529be204d85c91b24a9f3fee). Финальные документы публикуются последующим commit. Beta.3 добавляет CATEGORY_LAUNCHER для системного Open и пояснение продолжения после выдачи install permission; decoder/player policy после beta.2 не менялась.
 
-- Staged signed candidate: [Twitch20-0.1.0-alpha.1.apk](../dist/v0.1.0-alpha.1/Twitch20-0.1.0-alpha.1.apk), versionCode 1, 2 711 016 байт. SHA-256 `f0e467ac08cb3fc985d016783b2d0e8af9ff23d008f76b771e9d802ca26f2a88`; рядом update.json/SHA256SUMS.txt.
-- APK **не опубликован**. Metadata apkUrl — будущий адрес. [stage_release.py](../tools/stage_release.py) не загружает файлы и запрещает незаметно заменить отличающийся candidate тем же именем.
-- Новый публичный [oprawa228-hub/twitch-tv-2.0](https://github.com/oprawa228-hub/twitch-tv-2.0) создан. APK-релиза/OTA ещё нет; исходники/assets публикует root.
-- Эмулятор `Twitch20Test`, `emulator-5560`, API 30/x86, 1280×720/density 213; отдельная `.local/avd`. Root восстанавливает точный staged signed release после diagnostic debug tests. Auth persistence после диагностических переустановок отдельно не подтверждена; это не основание снова запрашивать личный вход сейчас.
-- JDK 17 старого проекта используется read-only; новый SDK — `.tools/android-sdk` этого проекта. Локальные пути/SDK/cache не публиковать.
-- Public Twitch app зарегистрирован; публичный Client ID в gradle.properties. Client secret в APK не нужен.
-- Signing key: `C:/Users/Opraw/.android/signing/twitch20/release.jks`; backup `D:/Private-Backups/Twitch20-signing`. Пароли не выводить/публиковать. Это локальная, не внешняя/offline копия. Certificate SHA-256 есть в TEST_RESULTS/update.json; идентичность не менять.
-- GitHub connector используется по доступным capabilities, Chrome — для создания repo/релизов. Личный GitHub credential в приложение не встраивать. Root управляет публикацией.
+## Что подтверждено
 
-## Следующие шаги
+- Реальные каталог/категории/поиск/канал/long OK/возврат фокуса, live+IRC, clip и VOD. Представительные quality720p60, VOD seek, Home/возврат и overlay/theater проверены native QA.
+- Draft preview/Save/Cancel, вложенные настройки и один Back из player settings; TLS UI cleanup crash и поглощённый фокусом Back исправлены/retested.
+- Network loss→error2001→restore→Retry→video; шесть успешных live/play/return циклов.
+- Реальный OAuth oprawa и followed-live каталог; далее пользователь попросил пропустить дополнительную проверку аккаунта. Не запрашивать повторный личный вход.
+- OTA2→4 сохранила18sp/oprawa/follows/VOD position1:28, затем playback1:46. OTA4→5 сохранила18sp/oprawa, Open одним OK запустил каталог. **Нового VOD history теста после5 не было.**
+- Первое разрешение REQUEST_INSTALL_PACKAGES завершило app процесс силами Android; после повторного открытия check/download/install успешно завершился. Beta.3 объясняет этот случай пользователю.
+- Последние42 unit PASS и5 diagnostic Android PASS/60.562с; финальные beta.3 successful build/signature/installer/Open/retention проверены отдельно. Полного повторного debug test run после двух beta.3 изменений не было.
+- Alpha.2 live9мин55.610с и memory85912→94340KB; stable-live/scroll Perfetto. Beta.2 отдельно на5562:4мин22.952с,14382 rendered/9 dropped/50 skipped,0.063% late-drop доля. Начальный Auto160p, последующий ABR не записан. PERF подробно разделяет эти выборки.
 
-1. Native QA точного staged signed release: каталог/поиск/канал → live → качество/панели → Back; VOD/clip/resume; режимы чата; параметры/Save/Cancel/long OK/process-restart.
-2. Release-like network/lifecycle/длительные нагрузки и измерения с raw evidence. Физического TV нет — отделять emulator evidence от ARM/декодерного QA.
-3. Исправить существенные регрессии и выполнить независимый review; записать фактические результаты.
-4. README/лицензии/сборка/исходники и два signed test releases. Настоящий download → system installer → новая версия с сохранением данных; сравнить hashes публикации, загрузки и установленного артефакта. Только затем заявлять проверенный OTA.
+## Среда / контракты
 
-## Не потерять при продолжении
+- Проект `D:/Project/Twitch TV 2.0`, пакет `com.oprawa.twitch20`, независимый от старого приложения/канала. AGP8.13.2/Gradle8.13/JDK17/Kotlin2.3.10/SDK36/min23/BOM2026.06.01/TV1.1.0/Media3 1.11.1/**OkHttp4.12.1**/Coil3.4.0. OkHttp5.5.1 требует SDK37; не возвращать без осознанного обновления toolchain.
+- Primary `Twitch20Test`/5560: API30 x86,1280×720,4core/2GB/SwiftShader. Secondary `Twitch20Release`/5562: тот же образ,2core/1.5GB. Общий host, во время stress были R8/второй emulator; физического TV нет. Старый AVD не изменён.
+- Один PlaybackSession на просмотр, панели не владеют ExoPlayer. HTTP cleanup вне main, StrictMode сохранён. Viewing владеет lifecycle; Retry заново получает signed URL. Back перехватывается до Compose focus traversal, действие на uncancelled UP.
+- OAuth AtomicFile/AndroidKeystore AES-GCM; public Client ID допустим в APK, client secret/GitHub credentials не встраивать. Signing key `C:/Users/Opraw/.android/signing/twitch20/release.jks`, локальный backup `D:/Private-Backups/Twitch20-signing`; пароли не выводить. Идентичность подписи сохранить.
+- Raw `evidence/`, `.local/` и SDK/cache исключены из Git. Документы называют локальные evidence-пути для воспроизведения на workspace; публичные APK/manifest/checksum доступны через Releases. Root единолично управляет устройствами/build/sign/publish.
 
-Панели не владеют ExoPlayer; HTTP cleanup не выполняется main; root Viewing владеет lifecycle, Retry заново разрешает signed URL. Live IRC работает только при foreground live session, чтобы draft включения сразу показывал настоящий чат. Гостевое video недокументировано; OAuth не гарантирует subscriber-only. Root единолично запускает builds/device и управляет ключом/версиями/публикацией. Один владелец файла; отчёты отдельных агентов не заменяют интегрированную проверку.
+## Ограничения и дальнейшее развитие
+
+Это завершённая доставка beta, не обещание проверки всех устройств/условий. Не проверены физический ARM TV/аппаратный decoder/1080p60, многочасовые нагрузки,20+ смен каналов, длительный busy chat, token expiry/refresh/revoke. Представительные VOD seek/Home/resume/quality/search/theater выполнены; расширение комбинаций — последующее покрытие, не незавершённая реализация основных сценариев.
+
+Общий live каталог ограничен30, категории40, VOD/clips30; бесконечной пагинации нет. Гостевой video использует недокументированный Twitch путь; subscriber-only/Turbo не гарантируются. Public GitHub prereleases не обязательно появляются в `/releases/latest`; updater использует подходящий feed. Для будущих релизов сохранять подпись, повышать versionCode и повторять exact-artifact OTA проверку по RELEASING.md.
