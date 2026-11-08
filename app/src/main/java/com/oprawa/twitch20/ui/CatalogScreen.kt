@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -79,6 +80,12 @@ fun CatalogScreen(
     onRetry: () -> Unit,
     onFocused: (String) -> Unit,
     onChannelDetails: (Channel) -> Unit = onChannel,
+    hasMore: Boolean = false,
+    onLoadMore: () -> Unit = {},
+    onRefresh: () -> Unit = onRetry,
+    limitReached: Boolean = false,
+    guestLimited: Boolean = false,
+    revision: Long = 0,
 ) {
     val entries = buildList {
         channels.forEach { channel ->
@@ -99,11 +106,17 @@ fun CatalogScreen(
     }
     val keys = entries.map { it.key }
     val state = rememberLazyGridState()
-    val requesters = remember(keys) { keys.associateWith { FocusRequester() } }
+    val requesters = remember { mutableMapOf<String, FocusRequester>() }
+    keys.forEach { requesters.getOrPut(it) { FocusRequester() } }
     val emptyRequester = remember { FocusRequester() }
-    var restored by remember { mutableStateOf(false) }
+    var restored by remember(revision) { mutableStateOf(false) }
 
-    LaunchedEffect(keys) {
+    LaunchedEffect(selectedKey, entries.size, hasMore, busy, error) {
+        if (hasMore && !busy && error == null && entries.isNotEmpty() &&
+            keys.indexOf(selectedKey) >= (entries.size - 6).coerceAtLeast(0)) onLoadMore()
+    }
+
+    LaunchedEffect(keys, revision) {
         // A background refresh must not steal focus from the navigation rail.
         if (entries.isNotEmpty() && !restored) {
             val index = keys.indexOf(selectedKey).coerceAtLeast(0)
@@ -159,6 +172,26 @@ fun CatalogScreen(
                 verticalArrangement = Arrangement.spacedBy(20.dp), modifier = Modifier.fillMaxSize()) {
                 items(entries, key = { it.key }) { entry ->
                     CatalogCard(entry, requesters.getValue(entry.key), onFocused)
+                }
+                item(key = "catalog-footer", span = { GridItemSpan(maxLineSpan) }) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        val note = when {
+                            limitReached -> "Показаны первые 1000 элементов. Выберите категорию или уточните поиск."
+                            guestLimited -> "В гостевом режиме доступна первая страница. Полный каталог — после входа в Twitch."
+                            else -> null
+                        }
+                        note?.let { Text(it, color = TvColors.Muted, fontSize = 14.sp) }
+                        TvAction(when {
+                            busy -> "Загрузка…"
+                            error != null -> "Повторить загрузку"
+                            hasMore -> "Загрузить ещё"
+                            else -> "Обновить список"
+                        }, {
+                            if (!busy) {
+                                if (hasMore) onLoadMore() else onRefresh()
+                            }
+                        })
+                    }
                 }
             }
         }

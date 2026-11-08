@@ -6,7 +6,6 @@ import com.oprawa.twitch20.data.Channel
 import java.io.IOException
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -60,7 +59,7 @@ class TwitchAuth(context: Context, private val clientId: String) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
     private val gate = Any()
-    private val generation = AtomicLong(0)
+    private val generation = AuthGeneration()
     private val closed = AtomicBoolean(false)
     private var session: StoredSession? = null
     private var loaded = false
@@ -69,11 +68,7 @@ class TwitchAuth(context: Context, private val clientId: String) {
 
     init {
         scope.launch {
-            validateSession()
-            while (isActive) {
-                delay(60 * 60 * 1000L)
-                validateSession()
-            }
+            runAuthValidationLoop(::validateSession, { load() != null && mutableState.value.error != null })
         }
     }
 
@@ -192,6 +187,29 @@ class TwitchAuth(context: Context, private val clientId: String) {
         return checkSession(saved, epoch).also { publish(it, epoch) }
     }
 
+    /** Official authenticated catalog GET; credentials remain inside the account owner. */
+    suspend fun helixGet(endpoint: String, parameters: Map<String, String>): JSONObject = withContext(Dispatchers.IO) {
+        val url = HelixCatalogAccess.url(endpoint, parameters)
+        mutex.withLock {
+            val epoch = generation.get()
+            var current = validatedAccount(epoch)
+            HelixCatalogAccess.fetch(
+                request = {
+                    requireCurrent(epoch)
+                    val response = get(url.toString(), current.accessToken, helix = true)
+                    requireCurrent(epoch)
+                    HelixReply(response.status, response.json)
+                },
+                refresh = {
+                    current = refresh(current, epoch)
+                    // Refresh preserves this validated account's identity. The GET retry
+                    // validates the replacement access token without another refresh loop.
+                },
+                expire = { clearLocal(epoch) },
+            ).also { publish(current, epoch) }
+        }
+    }
+
     /** Caller holds mutex, including refresh: a single-use refresh token cannot race pages. */
     private suspend fun followedPages(endpoint: String, identityField: String, initial: StoredSession, epoch: Long): List<JSONObject> {
         var current = initial
@@ -275,7 +293,7 @@ class TwitchAuth(context: Context, private val clientId: String) {
         return candidate.copy(login = body.optString("login"), userId = body.getString("user_id")).also { save(it, epoch) }
     }
 
-    private suspend fun refresh(current: StoredSession, epoch: Long): StoredSession {
+    private suspend fun refresh(current: StoredSession, epoch: Long): StoredSession = refreshTransaction {
         val response = post("https://id.twitch.tv/oauth2/token", mapOf("client_id" to clientId,
             "grant_type" to "refresh_token", "refresh_token" to current.refreshToken))
         requireCurrent(epoch)
@@ -286,7 +304,7 @@ class TwitchAuth(context: Context, private val clientId: String) {
         if (AuthProtocol.pollDecision(response.status, response.json) != PollDecision.COMPLETE) throw AuthException("Не удалось обновить сессию Twitch. Повторите после восстановления сети.")
         val rotated = current.copy(accessToken = response.json.getString("access_token"), refreshToken = response.json.getString("refresh_token"))
         save(rotated, epoch) // DCF refresh token is single-use: persist rotation before any next request.
-        return rotated
+        rotated
     }
 
     private fun load(): StoredSession? = synchronized(gate) {
@@ -312,7 +330,7 @@ class TwitchAuth(context: Context, private val clientId: String) {
     }
 
     private fun requireCurrent(epoch: Long) {
-        if (generation.get() != epoch) throw CancellationException("Authorization session changed")
+        generation.requireCurrent(epoch)
     }
 
     private suspend fun post(url: String, fields: Map<String, String>): AuthResponse {

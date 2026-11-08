@@ -159,6 +159,31 @@ class TvNavigationTest {
         assertEquals(packageName, device.currentPackageName)
     }
 
+    @Test fun authenticatedCatalogLoadsBeyondFirstThirtyAndRestoresCard() {
+        assertTrue("Для Helix-проверки нужен уже сохранённый аккаунт", device.hasObject(By.descStartsWith("Аккаунт: ")))
+        val names = mutableSetOf<String>()
+        repeat(14) {
+            awaitCatalogSettled()
+            val card = device.findObject(By.focused(true)) ?: throw AssertionError("Потерян фокус")
+            val description = card.contentDescription.orEmpty()
+            assertTrue("Прокрутка остановилась на первой странице: $description", description.contains("●"))
+            assertTrue("D-pad не переместился на следующую строку", names.add(description.substringBefore(", ")))
+            if (it < 13) device.pressDPadDown()
+        }
+        val selected = device.findObject(By.focused(true))!!
+        val name = selected.contentDescription!!.substringBefore(", ")
+        val top = selected.visibleBounds.top
+        device.executeShellCommand("input keyevent --longpress KEYCODE_DPAD_CENTER")
+        assertTrue(device.wait(Until.hasObject(By.text("Клипы")), 25_000))
+        device.pressBack()
+        awaitCatalogSettled()
+        val restored = device.findObject(By.focused(true))!!
+        assertTrue("Возврат потерял карточку загруженной страницы", restored.contentDescription?.startsWith("$name, ") == true)
+        assertEquals("Возврат сдвинул каталог", top, restored.visibleBounds.top)
+    }
+
+    // Refresh restoration uses tools/qa_catalog_refresh.py with fresh native AX snapshots.
+
     private fun openSettings() {
         focusText("Настройки")
         device.pressDPadCenter()
@@ -179,7 +204,13 @@ class TvNavigationTest {
             val target = find() ?: throw AssertionError("Не найден элемент $label")
             if (targetOrAncestorHasFocus(target)) return
             val focused = device.wait(Until.findObject(By.focused(true)), 2_000)
-                ?: throw AssertionError("Фокус исчез при переходе к $label")
+                ?: run {
+                    // Closing Android TV's IME may leave the host outside keyboard mode.
+                    // A real remote direction re-enters navigation; restoration assertions
+                    // still use awaitStableFocus and never manufacture a focused node.
+                    device.pressDPadDown()
+                    return@repeat
+                }
             run {
                 val from = focused.visibleBounds
                 val to = nearestFocusableAncestor(target).visibleBounds
@@ -239,6 +270,9 @@ class TvNavigationTest {
             }
             SystemClock.sleep(100)
         }
-        throw AssertionError("Начальный D-pad фокус не установился за 5 секунд")
+        val evidence = instrumentation.targetContext.cacheDir
+        device.dumpWindowHierarchy(java.io.File(evidence, "focus-failure.xml"))
+        device.takeScreenshot(java.io.File(evidence, "focus-failure.png"))
+        throw AssertionError("Начальный D-pad фокус не установился за 5 секунд; последний: $previous")
     }
 }

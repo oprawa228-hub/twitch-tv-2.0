@@ -78,14 +78,60 @@ private fun TwitchApp() {
     var settingsOpen by remember { mutableStateOf(false) }
     var aboutOpen by remember { mutableStateOf(false) }
     var exitOpen by remember { mutableStateOf(false) }
-    var refresh by remember { mutableIntStateOf(0) }
     var query by rememberSaveable { mutableStateOf("") }
-    var channels by remember { mutableStateOf(emptyList<Channel>()) }
-    var categories by remember { mutableStateOf(emptyList<Category>()) }
-    var videos by remember { mutableStateOf(emptyList<Video>()) }
-    var channel by remember { mutableStateOf<Channel?>(null) }
-    var busy by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
+    // Identity is part of the cache boundary: logout cannot leave a personal catalog behind.
+    val catalogCache = remember(authState.loggedIn, authState.displayName) { linkedMapOf<String, CatalogPager<CatalogItem>>() }
+    val channelInfo = remember(authState.loggedIn, authState.displayName) { mutableStateMapOf<String, Channel>() }
+    val pager = remember(route.key, catalogCache) {
+        val requested = route
+        val signedIn = authState.loggedIn
+        var helix = HelixCatalogRepository(auth::helixGet)
+        val existing = catalogCache.remove(requested.key)
+        val result = existing ?: CatalogPager<CatalogItem>({ it.key }) { after ->
+            if (after == null) helix = HelixCatalogRepository(auth::helixGet)
+            when (requested.kind) {
+                "streams", "category" -> {
+                    val categoryId = requested.value.takeIf { requested.kind == "category" }
+                    val page = if (signedIn) helix.streamsPage(categoryId, after)
+                        else CatalogPage(repository.streams(categoryId), null)
+                    CatalogPage(page.items.map { CatalogItem.Stream(it) }, page.nextCursor)
+                }
+                "categories" -> {
+                    val page = if (signedIn) helix.categoriesPage(after) else CatalogPage(repository.categories(), null)
+                    CatalogPage(page.items.map { CatalogItem.Game(it) }, page.nextCursor)
+                }
+                "channel", "clips" -> {
+                    if (requested.kind == "channel" && after == null)
+                        channelInfo[requested.key] = repository.channel(requested.value)
+                    val page = if (requested.kind == "clips") {
+                        if (signedIn) helix.clipsPage(requested.value, after) else CatalogPage(repository.clips(requested.value), null)
+                    } else {
+                        if (signedIn) helix.videosPage(requested.value, after) else CatalogPage(repository.videos(requested.value), null)
+                    }
+                    CatalogPage(page.items.map { CatalogItem.Recording(it) }, page.nextCursor)
+                }
+                "search" -> CatalogPage(repository.search(requested.value).map { CatalogItem.Stream(it) }, null)
+                "following" -> CatalogPage((if (signedIn) auth.followedChannels() else emptyList()).map { CatalogItem.Stream(it) }, null)
+                else -> CatalogPage(emptyList(), null)
+            }
+        }
+        catalogCache[requested.key] = result
+        while (catalogCache.size > 3) {
+            val oldest = catalogCache.keys.first()
+            catalogCache.remove(oldest)?.cancel()
+            channelInfo.remove(oldest)
+            selections.remove(oldest)
+            catalogState.removeState(oldest)
+        }
+        result
+    }
+    val page by pager.state.collectAsStateWithLifecycle()
+    val channels = page.items.filterIsInstance<CatalogItem.Stream>().map { it.channel }
+    val categories = page.items.filterIsInstance<CatalogItem.Game>().map { it.category }
+    val videos = page.items.filterIsInstance<CatalogItem.Recording>().map { it.video }
+    val channel = channelInfo[route.key]
+    var pageJob by remember(pager) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun loadMore() { if (pageJob?.isActive != true) pageJob = scope.launch { pager.loadNext() } }
     var clock by remember { mutableStateOf("") }
     fun closeSettings() { settingsOpen=false; catalogState.removeState("settings-panel") }
 
@@ -106,23 +152,10 @@ private fun TwitchApp() {
     LaunchedEffect(settings.showClock) {
         while(settings.showClock) { clock=SimpleDateFormat("HH:mm",Locale.getDefault()).format(Date()); delay(15_000) }
     }
-    LaunchedEffect(route,refresh,authState.loggedIn) {
-        channels=emptyList(); categories=emptyList(); videos=emptyList(); channel=null; error=null
-        busy=true
-        try {
-            when(route.kind) {
-                "streams" -> channels=repository.streams()
-                "categories" -> categories=repository.categories()
-                "category" -> channels=repository.streams(route.value)
-                "search" -> if(route.value.isNotBlank()) channels=repository.search(route.value)
-                "channel" -> { channel=repository.channel(route.value); videos=repository.videos(route.value) }
-                "clips" -> videos=repository.clips(route.value)
-                "following" -> if(authState.loggedIn) channels=auth.followedChannels()
-            }
-        } catch(cancel:CancellationException) { throw cancel }
-        catch(e:Exception) { error=if(e is TwitchException || e is AuthException) e.message else "Не удалось загрузить данные. Проверьте сеть и повторите." }
-        finally { busy=false }
+    LaunchedEffect(pager) {
+        if (!pager.state.value.initialized) pager.loadNext()
     }
+    DisposableEffect(pager) { onDispose { pageJob?.cancel(); pager.cancel() } }
     BackHandler(enabled=watching==null && !settingsOpen && !aboutOpen) { back() }
     Box(Modifier.fillMaxSize().background(TvColors.Background)) {
         val active=watching
@@ -158,14 +191,18 @@ private fun TwitchApp() {
                             TvAction("Назад",{back()})
                         }
                     }
-                    Box(Modifier.weight(1f)) { catalogState.SaveableStateProvider(route.key) {
+                    Box(Modifier.weight(1f)) { catalogState.SaveableStateProvider(route.key) { key(pager) {
                         CatalogScreen(title=route.title.ifBlank {"Twitch"},channels=channels,categories=categories,videos=videos,
-                            busy=busy,error=error,selectedKey=selections[route.key],onChannel={openChannel(it)},
+                            busy=page.loading || !page.initialized,error=page.error,selectedKey=selections[route.key],onChannel={openChannel(it)},
                             onCategory={navigate(Route("category",it.id,it.name))},
                             onVideo={watching=Watching(it.id,it.kind,it.channelLogin,it.title,it.channelLogin)},
-                            onRetry={refresh++},onFocused={selections[route.key]=it},
+                            onRetry={ if (!page.hasMore) pager.reset(); loadMore() },onFocused={selections[route.key]=it},
+                            hasMore=page.hasMore,onLoadMore={loadMore()},limitReached=page.limitReached,
+                            onRefresh={pageJob?.cancel();pager.reset();loadMore()},
+                            guestLimited=!authState.loggedIn && route.kind in setOf("streams","category","categories","channel","clips"),
+                            revision=page.revision,
                             onChannelDetails={navigate(Route("channel",it.login,it.name))})
-                    } }
+                    } } }
                 }
             }
         }
