@@ -13,9 +13,11 @@ def bounds(node):return tuple(map(int,re.findall(r'\d+',node.get('bounds',''))))
 def focus(label):
     for _ in range(24):
         root=ET.fromstring(hierarchy()); nodes=list(root.iter('node'))
+        parents={child:parent for parent in nodes for child in parent}
         targets=[n for n in nodes if n.get('text')==label or n.get('content-desc')==label]
         if not targets:raise RuntimeError('Visible target not found: '+label)
         target=next((n for n in targets if n.get('focusable')=='true'),targets[0])
+        while target.get('focusable')!='true' and target in parents:target=parents[target]
         focused=next((n for n in nodes if n.get('focused')=='true'),None)
         if focused is None:adb('shell','input','keyevent','KEYCODE_DPAD_DOWN');continue
         tx1,ty1,tx2,ty2=bounds(target);fx1,fy1,fx2,fy2=bounds(focused)

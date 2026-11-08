@@ -16,6 +16,14 @@ object UpdatePolicy {
     const val PACKAGE = "com.oprawa.twitch20"
     const val REPOSITORY = "oprawa228-hub/twitch-tv-2.0"
     const val MAX_APK_BYTES = 150L * 1024 * 1024
+    fun rawManifestUrl(includePrerelease: Boolean): String =
+        "https://raw.githubusercontent.com/$REPOSITORY/main/updates/${if (includePrerelease) "test" else "stable"}.json"
+
+    fun validateRawManifestUrl(url: String) {
+        require(url == rawManifestUrl(true) || url == rawManifestUrl(false)) {
+            "Резервный канал доступен только по закреплённому адресу проекта"
+        }
+    }
     private val digest = Regex("[0-9a-fA-F]{64}")
 
     fun validateAssetUrl(url: String, extension: String) {

@@ -9,6 +9,25 @@ class UpdatePolicyTest {
         "https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-alpha.2/app.apk",
         "a".repeat(64), cert)
 
+    @Test fun rawFallbackAllowsOnlyTwoExplicitChannelManifests() {
+        UpdatePolicy.validateRawManifestUrl(UpdatePolicy.rawManifestUrl(true))
+        UpdatePolicy.validateRawManifestUrl(UpdatePolicy.rawManifestUrl(false))
+    }
+
+    @Test fun rawFallbackRejectsOtherRepositoriesBranchesFilesQueriesAndApk() {
+        val url = UpdatePolicy.rawManifestUrl(true)
+        listOf(url.replace("twitch-tv-2.0", "twitch-tv-by-oprawa"), url.replace("/main/", "/other/"),
+            url.replace("test.json", "app.apk"), url + "?alternate=true", url + "#fragment",
+            url.replace("https:", "http:"), url.replace("raw.githubusercontent.com", "user@raw.githubusercontent.com"),
+            url.replace("/updates/", "/updates/../updates/"))
+            .forEach { candidate -> assertThrows(IllegalArgumentException::class.java) {
+                UpdatePolicy.validateRawManifestUrl(candidate)
+            } }
+        assertThrows(IllegalArgumentException::class.java) {
+            UpdatePolicy.validateRelease(valid.copy(apkUrl = url.replace("test.json", "app.apk")), 1, 30, cert)
+        }
+    }
+
     @Test fun acceptsNewCompatibleSignedRelease() { UpdatePolicy.validateRelease(valid, 1, 30, cert) }
     @Test fun acceptsExactDownloadedArchive() {
         UpdatePolicy.validateArchive(valid, valid.packageName, 2, 23, cert, cert)

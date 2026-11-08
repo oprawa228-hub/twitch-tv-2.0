@@ -68,9 +68,15 @@ class UpdateManager(context: Context) {
         .callTimeout(8, TimeUnit.MINUTES).followSslRedirects(false)
         .addNetworkInterceptor { chain ->
             val url = chain.request().url
-            val hosts = setOf("api.github.com", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com")
+            val hosts = setOf("api.github.com", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com", "raw.githubusercontent.com")
             if (!url.isHttps || url.host !in hosts || url.port != 443 || url.username.isNotEmpty() || url.password.isNotEmpty())
                 throw IOException("Небезопасный адрес загрузки")
+            if (url.host == "raw.githubusercontent.com") {
+                if (chain.call().request().url.host != "raw.githubusercontent.com")
+                    throw IOException("Перенаправление APK на raw запрещено")
+                try { UpdatePolicy.validateRawManifestUrl(url.toString()) }
+                catch (_: IllegalArgumentException) { throw IOException("Недопустимый адрес описания обновления") }
+            }
             chain.proceed(chain.request())
         }.build()
 
@@ -82,11 +88,17 @@ class UpdateManager(context: Context) {
             val currentVersion = version(installed)
             val installedCert = certificate(installed)
             val feed = "https://api.github.com/repos/${UpdatePolicy.REPOSITORY}/releases"
-            val releases = if (includePrerelease) {
-                val array = JSONArray(readText("$feed?per_page=30", 2 * 1024 * 1024)!!)
-                (0 until array.length()).map { array.getJSONObject(it) }
-            } else {
-                readText("$feed/latest", 1024 * 1024, missingIsEmpty = true)?.let { listOf(JSONObject(it)) } ?: emptyList()
+            val releases = try {
+                if (includePrerelease) {
+                    val array = JSONArray(readText("$feed?per_page=30", 2 * 1024 * 1024)!!)
+                    (0 until array.length()).map { array.getJSONObject(it) }
+                } else {
+                    readText("$feed/latest", 1024 * 1024, missingIsEmpty = true)?.let { listOf(JSONObject(it)) } ?: emptyList()
+                }
+            } catch (failure: HttpFailure) {
+                if (failure.status != 403 && failure.status != 429) throw failure
+                checkRawChannel(includePrerelease, currentVersion, installedCert)
+                return@execute
             }
             var newest: UpdateRelease? = null
             var manifestFailures = 0
@@ -247,6 +259,25 @@ class UpdateManager(context: Context) {
         if (generation.get() == operationToken) mutable.value = value
     }
 
+    /** REST limits are shared by IP; the fallback remains pinned to our two repository files. */
+    private suspend fun checkRawChannel(includePrerelease: Boolean, currentVersion: Long, installedCert: String) {
+        val url = UpdatePolicy.rawManifestUrl(includePrerelease)
+        UpdatePolicy.validateRawManifestUrl(url)
+        val json = readText(url, 64 * 1024, missingIsEmpty = true)
+        val release = json?.let { parseRelease(JSONObject(it)) }
+        if (release != null) {
+            // Validate all metadata even when the channel points to the currently installed version.
+            // Actual upgrade/downgrade eligibility is compared below and again before download.
+            UpdatePolicy.validateRelease(release, 0, Build.VERSION.SDK_INT, installedCert)
+        }
+        currentCoroutineContext().ensureActive()
+        publish(if (release != null && release.versionCode > currentVersion)
+            UpdateState("available", "Доступна версия ${release.versionName}", available = release)
+        else UpdateState("current", if (includePrerelease) "Новых проверяемых выпусков нет" else "Новых стабильных выпусков нет"))
+    }
+
+    private class HttpFailure(val status: Int) : IOException("Сервис обновления недоступен")
+
     private suspend fun request(url: String): Response = suspendCancellableCoroutine { continuation ->
         val pending = client.newCall(Request.Builder().url(url).header("Accept", "application/vnd.github+json")
             .header("User-Agent", "Twitch20-AndroidTV").build())
@@ -265,7 +296,7 @@ class UpdateManager(context: Context) {
     private suspend fun readText(url: String, limit: Int, missingIsEmpty: Boolean = false): String? =
         request(url).use { response ->
             if (missingIsEmpty && response.code == 404) return@use null
-            check(response.isSuccessful) { "GitHub недоступен" }
+            if (!response.isSuccessful) throw HttpFailure(response.code)
             val body = response.body ?: throw IOException("Пустой ответ")
             check(body.contentLength() <= limit) { "Слишком большой ответ" }
             body.byteStream().use { stream ->
