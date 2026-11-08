@@ -1,5 +1,9 @@
 """Native D-pad refresh regression; start on a channel's nonempty VOD grid.
 
+Use a channel whose archive fits in one 30-item page (buster was verified).
+Refreshing a longer catalog intentionally reloads its first page; a selection
+absent from that new page falls back to the first card instead.
+
 Fresh external UI Automator sessions avoid the long-lived instrumentation
 accessibility cache observed on API 30 after replacing Compose catalog nodes.
 Never run alongside instrumentation. Uses tools/device.py's designated AVD.
