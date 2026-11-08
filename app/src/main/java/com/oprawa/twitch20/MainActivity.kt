@@ -1,0 +1,299 @@
+package com.oprawa.twitch20
+
+import android.os.Bundle
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.tv.material3.Text
+import com.oprawa.twitch20.auth.TwitchAuth
+import com.oprawa.twitch20.auth.AuthException
+import com.oprawa.twitch20.auth.DeviceAuthorization
+import com.oprawa.twitch20.chat.ChatClient
+import com.oprawa.twitch20.data.*
+import com.oprawa.twitch20.playback.PlaybackSession
+import com.oprawa.twitch20.settings.SettingsStore
+import com.oprawa.twitch20.update.UpdateManager
+import com.oprawa.twitch20.ui.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.systemBars())
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        setContent { TwitchTheme { TwitchApp() } }
+    }
+}
+
+private data class Route(val kind: String, val value: String = "", val title: String = "") {
+    val key get() = "$kind:$value"
+}
+private data class Watching(val id: String, val kind: String, val login: String, val title: String, val subtitle: String)
+
+@Composable
+private fun TwitchApp() {
+    val context = LocalContext.current
+    val repository = remember { TwitchRepository() }
+    val settingsStore = remember { SettingsStore(context) }
+    val settings by settingsStore.state.collectAsStateWithLifecycle()
+    val auth = remember { TwitchAuth(context, BuildConfig.TWITCH_CLIENT_ID) }
+    val authState by auth.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val updater = remember { UpdateManager(context) }
+    val catalogState = rememberSaveableStateHolder()
+    var route by remember { mutableStateOf(Route("streams", title = "Прямые эфиры")) }
+    val history = remember { mutableStateListOf<Route>() }
+    val selections = remember { mutableStateMapOf<String,String>() }
+    var watching by remember { mutableStateOf<Watching?>(null) }
+    var settingsOpen by remember { mutableStateOf(false) }
+    var aboutOpen by remember { mutableStateOf(false) }
+    var exitOpen by remember { mutableStateOf(false) }
+    var refresh by remember { mutableIntStateOf(0) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var channels by remember { mutableStateOf(emptyList<Channel>()) }
+    var categories by remember { mutableStateOf(emptyList<Category>()) }
+    var videos by remember { mutableStateOf(emptyList<Video>()) }
+    var channel by remember { mutableStateOf<Channel?>(null) }
+    var busy by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var clock by remember { mutableStateOf("") }
+    val railFocus = remember { FocusRequester() }
+
+    fun navigate(next: Route, push: Boolean = true) {
+        if (push) history.add(route) else history.clear()
+        route = next
+    }
+    fun back() {
+        if (history.isNotEmpty()) route = history.removeAt(history.lastIndex)
+        else exitOpen=true
+    }
+    fun openChannel(ch: Channel) {
+        if(ch.live) watching = Watching(ch.login,"live",ch.login,ch.name,ch.title)
+        else navigate(Route("channel",ch.login,ch.name))
+    }
+    DisposableEffect(auth) { onDispose { auth.close() } }
+    LaunchedEffect(settings.showClock) {
+        while(settings.showClock) { clock=SimpleDateFormat("HH:mm",Locale.getDefault()).format(Date()); delay(15_000) }
+    }
+    LaunchedEffect(route,refresh,authState.loggedIn) {
+        channels=emptyList(); categories=emptyList(); videos=emptyList(); channel=null; error=null
+        busy=true
+        try {
+            when(route.kind) {
+                "streams" -> channels=repository.streams()
+                "categories" -> categories=repository.categories()
+                "category" -> channels=repository.streams(route.value)
+                "search" -> if(route.value.isNotBlank()) channels=repository.search(route.value)
+                "channel" -> { channel=repository.channel(route.value); videos=repository.videos(route.value) }
+                "clips" -> videos=repository.clips(route.value)
+                "following" -> if(authState.loggedIn) channels=auth.followedChannels()
+            }
+        } catch(cancel:CancellationException) { throw cancel }
+        catch(e:Exception) { error=if(e is TwitchException || e is AuthException) e.message else "Не удалось загрузить данные. Проверьте сеть и повторите." }
+        finally { busy=false }
+    }
+    BackHandler(enabled=watching==null && !settingsOpen && !aboutOpen) { back() }
+    Box(Modifier.fillMaxSize().background(TvColors.Background)) {
+        val active=watching
+        if(!settingsOpen && !aboutOpen && !exitOpen) {
+        if(active!=null) {
+            key(active.id,active.kind) {
+                Viewing(active,repository,settingsStore,onBack={watching=null},onSettings={settingsOpen=true})
+            }
+        } else Row(Modifier.fillMaxSize()) {
+            NavigationRail(selected=if(route.kind=="category")"categories" else route.kind,
+                accountName=if(authState.loggedIn)authState.displayName else "",
+                onSelect={section -> when(section) {
+                    "settings" -> settingsOpen=true
+                    "about" -> aboutOpen=true
+                    else -> navigate(Route(section,title=when(section){"streams"->"Прямые эфиры";"search"->"Поиск";"categories"->"Категории";"following"->"Отслеживаемые";else->"Аккаунт"}),false)
+                }})
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                if(route.kind=="account") {
+                    AccountScreen(auth)
+                } else if(route.kind=="following" && !authState.loggedIn) {
+                    MessageScreen("Ваши каналы", "Войдите в Twitch по коду с телефона или компьютера.", "Войти") { navigate(Route("account",title="Аккаунт")) }
+                } else {
+                    if(route.kind=="search") Row(Modifier.fillMaxWidth().padding(24.dp,8.dp),horizontalArrangement=Arrangement.spacedBy(14.dp),verticalAlignment=Alignment.CenterVertically) {
+                        OutlinedTextField(value=query,onValueChange={query=it.take(100)},singleLine=true,
+                            label={androidx.compose.material3.Text("Название канала")},modifier=Modifier.weight(1f),
+                            keyboardOptions=KeyboardOptions(imeAction=ImeAction.Search),keyboardActions=KeyboardActions(onSearch={navigate(Route("search",query,"Результаты поиска"),false)}))
+                        TvAction("Найти",{navigate(Route("search",query,"Результаты поиска"),false)})
+                    }
+                    channel?.let { ch ->
+                        Row(Modifier.padding(horizontal=24.dp,vertical=8.dp),horizontalArrangement=Arrangement.spacedBy(14.dp)) {
+                            if(ch.live) TvAction("Смотреть эфир",{openChannel(ch)})
+                            TvAction("Клипы",{navigate(Route("clips",ch.login,"Клипы · ${ch.name}"))})
+                            TvAction("Назад",{back()})
+                        }
+                    }
+                    Box(Modifier.weight(1f)) { catalogState.SaveableStateProvider(route.key) {
+                        CatalogScreen(title=route.title.ifBlank {"Twitch"},channels=channels,categories=categories,videos=videos,
+                            busy=busy,error=error,selectedKey=selections[route.key],onChannel={openChannel(it)},
+                            onCategory={navigate(Route("category",it.id,it.name))},
+                            onVideo={watching=Watching(it.id,it.kind,it.channelLogin,it.title,it.channelLogin)},
+                            onRetry={refresh++},onFocused={selections[route.key]=it},
+                            onChannelDetails={navigate(Route("channel",it.login,it.name))})
+                    } }
+                }
+            }
+        }
+        }
+        if(settings.showClock && watching==null && !settingsOpen && !aboutOpen && !exitOpen) Text(clock,color=TvColors.Muted,fontSize=16.sp,modifier=Modifier.align(Alignment.TopEnd).padding(end=28.dp,top=18.dp))
+        if(settingsOpen) Box(Modifier.fillMaxSize().background(TvColors.Background)) {
+            SettingsScreen(settings,onSave={settingsStore.save(it);settingsOpen=false},onBack={settingsOpen=false},onCheckUpdates={aboutOpen=true})
+        }
+        if(aboutOpen) Box(Modifier.fillMaxSize().background(TvColors.Background)) {
+            BackHandler { aboutOpen=false }
+            Column(Modifier.padding(48.dp),verticalArrangement=Arrangement.spacedBy(22.dp)) {
+                Text("Twitch 2.0",fontSize=32.sp,color=TvColors.Text)
+                Text("${BuildConfig.VERSION_NAME} · Android TV",color=TvColors.Muted)
+                Text("Собственный клиент Oprawa. Не является официальным приложением Twitch.",color=TvColors.Text)
+                Text("Kotlin · AndroidX Compose TV · Media3 · OkHttp · Coil\nОткрытые библиотеки: Apache-2.0. Авторские иллюстрации: Oprawa.",color=TvColors.Muted)
+                UpdateControls(updater)
+                TvAction("Назад",{aboutOpen=false})
+            }
+        }
+        if(exitOpen) Box(Modifier.fillMaxSize().background(TvColors.Background.copy(alpha=.96f)),contentAlignment=Alignment.Center) {
+            BackHandler { exitOpen=false }
+            Column(verticalArrangement=Arrangement.spacedBy(20.dp)) {
+                Text("Выйти из Twitch 2.0?",color=TvColors.Text,fontSize=26.sp)
+                TvAction("Остаться",{exitOpen=false})
+                TvAction("Выйти",{(context as? android.app.Activity)?.finish()})
+            }
+        }
+    }
+}
+
+@Composable private fun Viewing(target:Watching,repository:TwitchRepository,store:SettingsStore,onBack:()->Unit,onSettings:()->Unit) {
+    val context=LocalContext.current
+    val session=remember { PlaybackSession(context) }
+    val chat=remember { ChatClient() }
+    val settings by store.state.collectAsStateWithLifecycle()
+    val messages by chat.messages.collectAsStateWithLifecycle()
+    val lifecycleOwner=LocalLifecycleOwner.current
+    val currentSettings by rememberUpdatedState(settings)
+    var resolving by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var retry by remember { mutableIntStateOf(0) }
+    val positions=remember { PlaybackHistory(context) }
+    DisposableEffect(session,lifecycleOwner) {
+        val observer=LifecycleEventObserver { _,event ->
+            when(event) {
+                Lifecycle.Event.ON_STOP -> { session.onBackground();chat.close() }
+                Lifecycle.Event.ON_START -> { session.onForeground();if(target.kind=="live") chat.connect(target.login) }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    DisposableEffect(session) { onDispose {
+        if(target.kind!="live") positions.save(target.kind,target.id,session.player.currentPosition.coerceAtLeast(0))
+        chat.release();session.release()
+    } }
+    LaunchedEffect(target.login) {
+        if(target.kind=="live" && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) chat.connect(target.login) else chat.close()
+    }
+    LaunchedEffect(target,retry) {
+        resolving=true;error=null
+        try {
+            val url=when(target.kind) { "live"->repository.resolveLive(target.id);"clip"->repository.resolveClip(target.id);else->repository.resolveVideo(target.id) }
+            session.play(url,"${target.kind}:${target.id}",target.kind=="live",positions.read(target.kind,target.id))
+            if(!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))session.onBackground()
+        } catch(cancel:CancellationException){throw cancel}
+        catch(e:Exception){error=if(e is TwitchException)e.message else "Не удалось подключиться. Проверьте сеть и повторите."}
+        finally{resolving=false}
+    }
+    BackHandler(enabled=resolving||error!=null){onBack()}
+    if(error!=null) MessageScreen("Видео недоступно",error!!,"Повторить"){retry++}
+    else if(resolving) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("Подключение к Twitch…",color=TvColors.Text)}
+    else PlayerScreen(session,target.title,target.subtitle,onBack,
+        chatContent=if(target.kind=="live") ({previewSettings -> ChatPanel(messages,previewSettings)}) else null,
+        settings=settings,onSettings=onSettings,onSettingsChange={store.save(it)},onRetry={retry++})
+}
+
+@Composable private fun AccountScreen(auth:TwitchAuth) {
+    val state by auth.state.collectAsStateWithLifecycle()
+    val scope=rememberCoroutineScope()
+    var device by remember { mutableStateOf<DeviceAuthorization?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var loginJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    DisposableEffect(Unit){onDispose{loginJob?.cancel()}}
+    Column(Modifier.fillMaxSize().padding(36.dp),verticalArrangement=Arrangement.spacedBy(24.dp)) {
+        Text("Аккаунт Twitch",fontSize=30.sp,color=TvColors.Text)
+        if(state.loggedIn){Text("Вы вошли: ${state.displayName}",color=TvColors.Text);TvAction("Выйти",{device=null;auth.logout()})}
+        else {
+            Text("Вход подтверждается на телефоне или компьютере.\nПароль на телевизоре вводить не нужно.",color=TvColors.Muted,fontSize=18.sp)
+            device?.let { Text("Откройте ${it.verificationUri}",color=TvColors.Text);Text(it.userCode,color=TvColors.Focus,fontSize=42.sp);Text("Подтвердите вход на сайте Twitch",color=TvColors.Muted) }
+            (error?:state.error)?.let{Text(it,color=TvColors.Error)}
+            TvAction(if(busy)"Отменить" else "Получить код", onClick = {
+                if(busy){loginJob?.cancel();busy=false;device=null}
+                else loginJob=scope.launch {
+                    busy=true;error=null
+                    try{ val d=auth.beginLogin();device=d;auth.awaitLogin(d);device=null }
+                    catch(cancel:CancellationException){throw cancel}
+                    catch(e:Exception){error=e.message?:"Вход не выполнен. Повторите."}
+                    finally{busy=false}
+                }
+            })
+        }
+    }
+}
+
+@Composable private fun UpdateControls(updater:UpdateManager) {
+    val state by updater.state.collectAsStateWithLifecycle()
+    val scope=rememberCoroutineScope()
+    val activity=LocalContext.current as android.app.Activity
+    var testChannel by rememberSaveable { mutableStateOf(true) }
+    Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        Text(state.message,color=TvColors.Text,fontSize=18.sp)
+        if(state.status=="downloading") Text("${(state.progress*100).toInt()}%",color=TvColors.Focus)
+        Row(horizontalArrangement=Arrangement.spacedBy(16.dp)) {
+            when(state.status) {
+                "checking","downloading" -> TvAction("Отменить",{updater.cancel()})
+                "available" -> TvAction("Скачать ${state.available?.versionName.orEmpty()}",{scope.launch{updater.download()}})
+                "ready","permission","installing" -> TvAction("Установить обновление",{updater.install(activity)})
+                else -> TvAction("Проверить обновления",{scope.launch{updater.check(testChannel)}})
+            }
+            TvAction(if(testChannel)"Канал: тестовый" else "Канал: обычный",{testChannel=!testChannel})
+        }
+    }
+}
+
+@Composable private fun MessageScreen(title:String,message:String,action:String,onAction:()->Unit) {
+    Column(Modifier.fillMaxSize().padding(40.dp),verticalArrangement=Arrangement.spacedBy(24.dp)) {
+        Text(title,fontSize=28.sp,color=TvColors.Text);Text(message,color=TvColors.Muted,fontSize=18.sp);TvAction(action,onAction)
+    }
+}

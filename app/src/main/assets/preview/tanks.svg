@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360">
+  <view id="still" viewBox="640 0 640 360"/>
+  <defs>
+    <linearGradient id="sky" x2="0" y2="1">
+      <stop stop-color="#171026"/><stop offset="1" stop-color="#493066"/>
+    </linearGradient>
+    <linearGradient id="ground" x2="0" y2="1">
+      <stop stop-color="#493653"/><stop offset="1" stop-color="#21192e"/>
+    </linearGradient>
+    <clipPath id="cam"><path d="M18 246l12-12h153v84l-12 12H18z"/></clipPath>
+    <path id="heart" d="M0 12C-4 8-15 1-15-6a8 8 0 0 1 15-3 8 8 0 0 1 15 3C15 1 4 8 0 12z"/>
+  </defs>
+  <style>
+    .tank,.turret,.heart,.puff,.player,.headset{animation-duration:5.6s;animation-iteration-count:infinite;animation-play-state:var(--demo-play,running)}
+    .tank{animation-name:roll}
+    .turret{animation-name:recoil;transform-origin:363px 214px}
+    .heart{animation-name:launch;opacity:0}
+    .heart-mid{animation-delay:.14s}
+    .heart-small{animation-delay:.28s}
+    .puff{animation-name:smoke;transform-origin:466px 190px;opacity:0}
+    .player{animation-name:surprise;transform-origin:101px 308px}
+    .headset{animation-name:bounce;transform-origin:101px 266px}
+    @keyframes roll{0%,100%{transform:translateX(0)}29%,35%{transform:translateX(13px)}42%{transform:translateX(3px)}58%,76%{transform:translateX(13px)}}
+    @keyframes recoil{0%,33%,50%,100%{transform:translate(0,0)}39%{transform:translate(-14px,4px)}}
+    @keyframes launch{
+      0%,34%{opacity:0;transform:scale(.2)}
+      39%{opacity:1;transform:translate(9px,-5px) rotate(12deg) scale(.7)}
+      56%{opacity:1;transform:translate(49px,-30px) rotate(-14deg)}
+      73%{opacity:.85;transform:translate(88px,-66px) rotate(12deg)}
+      87%,100%{opacity:0;transform:translate(131px,-105px) rotate(-9deg) scale(.78)}
+    }
+    @keyframes smoke{0%,34%{opacity:0;transform:scale(.3)}38%{opacity:.8}57%,100%{opacity:0;transform:scale(2.3)}}
+    @keyframes surprise{0%,35%,73%,100%{transform:rotate(0)}42%{transform:rotate(-13deg)}54%{transform:rotate(7deg)}}
+    @keyframes bounce{0%,35%,65%,100%{transform:translateY(0)}43%{transform:translateY(-14px) rotate(8deg)}55%{transform:translateY(2px)}}
+    @media(prefers-reduced-motion:reduce){*{animation:none!important}}
+  </style>
+  <defs><g id="battle">
+    <path fill="url(#sky)" d="M0 0h640v360H0z"/>
+    <circle cx="421" cy="98" r="65" fill="#a970ff" opacity=".17"/>
+    <path fill="#2e2142" d="M0 144l66-40 58 16 54-47 73 48 47-18 54 37 92-42 57 22 51-32 88 56v58H0z"/>
+    <path fill="url(#ground)" d="M0 163l137-15 104 16 136-19 113 12 150-8v211H0z"/>
+    <path fill="#221a30" d="M0 181l88-13 46 16-71 30H0zm478-12 53-12 79 11-38 21zm35 94 88-24 39 8v37l-65 3z"/>
+    <path fill="none" stroke="#755487" stroke-width="2" opacity=".55" d="M63 224l85-35 61 8m-8 133 129-34 122 6m-179-114 55-11 42 6m173 46 42-12 40 3"/>
+    <path fill="#30263e" d="M60 160v-24l19-19h67l24 19v25z"/>
+    <path fill="#675376" d="M79 117h67l24 19H60z"/>
+    <path fill="#1c1728" d="M83 141h54v9H83z"/>
+    <g class="tank">
+      <ellipse cx="360" cy="287" rx="111" ry="13" fill="#15101f" opacity=".65"/>
+      <rect x="250" y="241" width="210" height="46" rx="21" fill="#171623"/>
+      <rect x="257" y="249" width="196" height="31" rx="15" fill="#323141" stroke="#656073" stroke-width="2"/>
+      <g fill="#7b7587">
+        <circle cx="278" cy="264" r="10"/><circle cx="309" cy="264" r="10"/><circle cx="340" cy="264" r="10"/>
+        <circle cx="371" cy="264" r="10"/><circle cx="402" cy="264" r="10"/><circle cx="433" cy="264" r="10"/>
+      </g>
+      <path fill="#7c875b" d="M247 240l26-17h156l38 20-16 13H259z"/>
+      <path fill="#a1a777" d="M273 223h156l28 14H252z"/>
+      <g class="turret">
+        <path fill="#b4b98a" d="M374 207l85-23 8 5-2 8-88 25z"/>
+        <path fill="#696f50" d="M455 184l12-3 5 15-12 3z"/>
+        <path fill="#879364" d="M291 224l16-24 33-12 37 6 17 28-20 9h-75z"/>
+        <path fill="#b4b98a" d="M307 200l33-12 37 6 6 10-45 3z"/>
+        <path fill="#586348" d="M323 190l6-7h25l6 7z"/>
+      </g>
+    </g>
+    <g class="puff" fill="#e9c7fb">
+      <circle cx="470" cy="190" r="10"/><circle cx="480" cy="183" r="7"/><circle cx="483" cy="196" r="6"/>
+    </g>
+    <g transform="translate(478 189)">
+      <use class="heart" href="#heart" fill="#ff83b4"/>
+      <g transform="translate(0 -4) scale(.78)"><use class="heart heart-mid" href="#heart" fill="#ffc2de"/></g>
+      <g transform="translate(0 1) scale(.62)"><use class="heart heart-small" href="#heart" fill="#ff6f9f"/></g>
+    </g>
+    <g transform="translate(-8 -103) scale(1.32)">
+    <g clip-path="url(#cam)">
+      <path fill="#241831" d="M18 234h165v96H18z"/>
+      <path fill="#54396f" d="M18 280l45-46h-9l-36 38zm118 50 47-52v-9l-56 61z"/>
+      <path fill="#362448" d="M63 251h78l12 79H51z"/>
+      <g class="player">
+        <path fill="#d9997c" d="M73 292h51l10 17 5 21H48l8-23z"/>
+        <path fill="#f9f3f2" d="M72 293h13q15 18 29 0h14l-3 16 8 21H66l9-23z"/>
+        <path fill="#e4d8e6" d="M92 319q11-3 22 2l5 9H88z"/>
+        <path fill="#edb38e" d="M88 279h24v14q-13 14-24 0z"/>
+        <path fill="#edb38e" d="M76 260q1-16 25-16t25 16l-2 17-9 15H86l-10-13z"/>
+        <path fill="#62455f" d="M75 266l7-5 1-11-7 5zm51 0-7-5-1-11 7 5zM79 276l7 3 5-5h21l5 5 7-3-9 16H86z"/>
+        <path fill="#38293d" d="M86 262h10v3H86zm20 0h10v3h-10zm-11 18h12v4H95z"/>
+        <path fill="none" stroke="#d9997c" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"
+              d="M124 300l9 17q3 5 7-1l9-19"/>
+        <path fill="none" stroke="#b87563" stroke-width="1.5" stroke-linecap="round" d="m131 313 3 4"/>
+        <path fill="none" stroke="#ffe2a2" stroke-width="3" d="M157 285h-9q-5 0-5 5v3q0 5 5 5h9"/>
+        <rect x="155" y="282" width="19" height="22" rx="3" fill="#edaa48" stroke="#ffe2a2" stroke-width="1.5"/>
+        <path fill="#fff7de" d="M154 284v-4q1-5 6-4 3-4 7-1 5-2 8 3v7h-21z"/>
+        <path stroke="#ffcd67" stroke-width="2" d="M161 288v12"/>
+        <path fill="#edb38e" d="M144 297v-8q0-3 3-3h4q4 0 4 4v4q0 4-4 5h-5z"/>
+        <path fill="none" stroke="#b87563" stroke-width="1.3" stroke-linecap="round" d="M150 290h4m-4 4h4"/>
+      </g>
+      <g class="headset" fill="none" stroke="#c8a4f2" stroke-width="3" stroke-linecap="round">
+        <path d="M73 273v-10a28 24 0 0 1 56 0v10m0 0v8h-11"/>
+        <path stroke="#976bcb" stroke-width="6" d="M73 264v10m56-10v10"/>
+      </g>
+    </g>
+    <path fill="none" stroke="#ad7bf0" stroke-width="2" d="M18 246l12-12h153v84l-12 12H18z"/>
+    </g>
+  </g></defs>
+  <use href="#battle"/>
+  <use href="#battle" x="640" style="--demo-play:paused"/>
+</svg>

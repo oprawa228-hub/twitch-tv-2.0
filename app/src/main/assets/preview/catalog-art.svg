@@ -1,0 +1,225 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 180">
+  <title>Five illustrated Twitch stream previews</title>
+  <view id="still" viewBox="1600 0 1600 180"/>
+  <style>
+    .move{animation-duration:5.6s;animation-iteration-count:infinite;animation-play-state:var(--demo-play,running);transform-box:fill-box;transform-origin:center}
+    .dota-strike{animation-name:dota-strike}.dota-player{animation-name:dota-player}.dota-hero{animation-name:dota-hero}
+    .cs-shot{animation-name:cs-shot}.cs-player{animation-name:cs-player}.cs-recoil{animation-name:cs-recoil}
+    .slot-reels{animation-name:slot-reels}.slot-spin{animation-name:slot-spin}.slot-cheer{animation-name:slot-cheer}.slot-stars{animation-name:slot-stars}
+    .walker{animation-name:walker;animation-timing-function:linear}.walk-legs{animation-name:walk-legs;animation-duration:.7s;transform-origin:50% 15%}
+    .trash-player{animation-name:trash-player}.trash-screen{animation-name:trash-screen}.trash-alerts{animation-name:trash-alerts}
+    @keyframes dota-strike{0%,24%,81%,100%{opacity:.35;transform:scale(.72)}37%{opacity:1;transform:scale(1.42)}52%{opacity:.82;transform:scale(1.1)}}
+    @keyframes dota-player{0%,25%,80%,100%{transform:none}40%{transform:translate(2px,-5px) rotate(-7deg)}54%{transform:translateY(1px) rotate(4deg)}}
+    @keyframes dota-hero{0%,18%,84%,100%{transform:none}33%{transform:translate(16px,-8px)}42%{transform:translate(9px,-5px) rotate(-7deg)}60%{transform:translate(16px,-8px)}}
+    @keyframes cs-shot{0%,32%,46%,61%,100%{opacity:0;transform:none}36%,51%{opacity:1;transform:scale(1.2)}41%,55%{opacity:.5;transform:scale(.8)}}
+    @keyframes cs-recoil{0%,32%,46%,61%,100%{transform:none}36%,51%{transform:translate(6px,2px) rotate(2deg)}41%,55%{transform:translate(2px,1px)}}
+    @keyframes cs-player{0%,32%,68%,100%{transform:none}37%,52%{transform:translate(4px,-4px) rotate(4deg)}43%,58%{transform:translate(-2px,1px)}}
+    @keyframes slot-reels{0%,17%,52%,100%{transform:none;opacity:1}20%,45%{opacity:0;transform:translateY(8px)}57%{transform:translateY(-3px)}62%{transform:none}}
+    @keyframes slot-spin{0%,17%,51%,100%{opacity:0}23%,36%,46%{opacity:1;transform:translateY(-8px)}29%,42%{opacity:.76;transform:translateY(7px)}}
+    @keyframes slot-cheer{0%,50%,93%,100%{transform:none}57%,71%{transform:translateY(-7px) rotate(-4deg)}64%,78%{transform:translateY(-1px) rotate(4deg)}}
+    @keyframes slot-stars{0%,49%,100%{opacity:.2;transform:scale(.8)}58%,74%{opacity:1;transform:scale(1.12)}67%,85%{opacity:.6;transform:scale(.95)}}
+    @keyframes walker{0%,100%{transform:translateX(-12px)}50%{transform:translateX(14px)}}
+    @keyframes walk-legs{0%,100%{transform:scaleX(.98) rotate(-3deg)}50%{transform:scaleX(.72) rotate(5deg)}}
+    @keyframes trash-player{0%,36%,83%,100%{transform:none}45%{transform:translate(-4px,-7px) rotate(-6deg)}57%{transform:translate(3px,0) rotate(4deg)}}
+    @keyframes trash-screen{0%,33%,100%{opacity:.6}42%,58%{opacity:1}50%,69%{opacity:.72}}
+    @keyframes trash-alerts{0%,30%,90%,100%{opacity:0;transform:translateY(7px)}42%,67%{opacity:1;transform:translateY(-5px)}80%{opacity:.45;transform:translateY(-12px)}}
+    @media(prefers-reduced-motion:reduce){.move{animation:none!important}}
+  </style>
+  <defs>
+    <linearGradient id="dota" x2="0" y2="1"><stop stop-color="#142c37"/><stop offset="1" stop-color="#296f63"/></linearGradient>
+    <linearGradient id="cs" x2="0" y2="1"><stop stop-color="#ecaa69"/><stop offset="1" stop-color="#694044"/></linearGradient>
+    <linearGradient id="slots" x2="0" y2="1"><stop stop-color="#3c1749"/><stop offset="1" stop-color="#751f57"/></linearGradient>
+    <linearGradient id="walk" x2="0" y2="1"><stop stop-color="#3a5286"/><stop offset="1" stop-color="#de8290"/></linearGradient>
+    <linearGradient id="room" x2="0" y2="1"><stop stop-color="#123446"/><stop offset="1" stop-color="#382849"/></linearGradient>
+    <path id="seven" d="M0 0h27v7L14 32H5L18 8H0z"/>
+    <path id="spark" d="M0-11 3-3 11 0 3 3 0 11-3 3-11 0-3-3Z"/>
+    <!-- Shared head proportions keep the three facecams readable at TV card size. -->
+    <g id="portrait">
+      <path fill="var(--skin-shadow,#bd7e66)" d="M24 45h15v17q-7 7-15 0z"/>
+      <ellipse cx="11" cy="33" rx="5" ry="7" fill="var(--skin-shadow,#bd7e66)"/>
+      <ellipse cx="51" cy="33" rx="5" ry="7" fill="var(--skin-shadow,#bd7e66)"/>
+      <path fill="var(--skin,#e9ae8d)" d="M11 22Q11 7 31 7q20 0 20 15v13q0 10-9 17-5 4-11 4-7 0-12-4-8-7-8-17z"/>
+      <path fill="var(--skin-shadow,#bd7e66)" d="M32 33q3 3 3 8-2 2-6 1l3-2z"/>
+    </g>
+    <g id="headphones" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path stroke="#232036" stroke-width="5" d="M7 34V24a24 22 0 0 1 48 0v10"/>
+      <path stroke="var(--headset,#ac8de9)" stroke-width="2.5" d="M8 28v-5a23 21 0 0 1 46 0v5m0 12v4q0 5-8 5h-5"/>
+      <path stroke="var(--headset,#ac8de9)" stroke-width="7" d="M8 29v10m46-10v10"/>
+    </g>
+  </defs>
+
+  <defs><g id="scenes">
+
+  <!-- Dota: a focused player, an isometric lane and a bright team fight. -->
+  <g>
+    <path fill="url(#dota)" d="M0 0h320v180H0z"/>
+    <path fill="#223437" d="m88 149 105-75 45-15 82-51v172H65z"/>
+    <path fill="#755e61" d="m98 168 68-32 94-61 60-20v32l-67 23-98 70H76z"/>
+    <path fill="#334d49" d="m111 45 17-28 16 25 18-28 17 28 13-24 22 36-15 20-64 23z"/>
+    <path fill="#2c5c55" d="m183 155 18-29 16 25 20-23 10 33 22-24 24 43H173z"/>
+    <path fill="#9f6a80" d="m252 55 13-16 14 16-5 27h-17z"/><path fill="#ff8c8f" d="m265 39 8 11-9 8-8-8z"/>
+    <g class="move dota-strike">
+      <ellipse cx="225" cy="104" rx="36" ry="16" fill="none" stroke="#ffd282" stroke-width="3" opacity=".78"/>
+      <path fill="#ffe0a0" d="m198 116 10-16 21-3 11-16-3 20-17 4-12 14zm18-28 7-15 5 11 15-7-7 16z"/>
+      <path fill="#83ffd2" d="m231 96 27-23-7 18 10 3-23 5z"/>
+    </g>
+    <g class="move dota-hero"><ellipse cx="188" cy="129" rx="15" ry="4" fill="#143532"/>
+      <path fill="#a58de4" d="m173 128 6-12 5-2 2-10 7-1 4 10 7 4 4 11-16-4z"/>
+      <path fill="#9dffe0" d="m199 116 17-11 2 4-15 12z"/><path fill="#caffdd" d="M177 99h22v3h-22z"/>
+    </g>
+    <ellipse cx="246" cy="94" rx="13" ry="4" fill="#342337"/>
+    <path fill="#ee8692" d="m233 93 5-10 5-1 2-8 7-1 2 9 6 10-12-2z"/><path fill="#f9a987" d="M240 69h19v3h-19z"/>
+    <path fill="#1a2a34" d="M184 154h113v20H184z"/><path fill="#80d8a7" d="M190 158h52v3h-52z"/><path fill="#67b3e9" d="M190 164h37v3h-37z"/>
+    <path fill="#ae77e7" d="M248 158h12v11h-12zm15 0h12v11h-12z"/><path fill="#d9b36d" d="M279 158h12v11h-12z"/>
+    <g transform="translate(15 68)">
+      <path fill="#292138" stroke="#9f73d3" stroke-width="2" d="M0 12 12 0h103v88l-11 11H0z"/>
+      <path fill="#433759" d="M2 19h110v47H2z"/><path fill="#6e4f8f" d="M5 24h105v3H5z"/>
+      <g class="move dota-player">
+        <path fill="#9a315b" d="M12 95q3-24 22-31l12-4 29 1 14 4q18 6 20 30z"/>
+        <path fill="#d35783" d="M18 95q4-16 17-23l14-5 13 8 15-8 12 4q11 6 15 24z"/>
+        <path fill="#e583a6" d="m34 73-4 22h-6l7-19zm55 0 7 22h-6l-5-22z"/>
+        <g transform="translate(32 7)">
+          <use href="#portrait"/>
+          <path fill="#38263a" d="M10 29Q4 21 11 11 17 1 32 3q17-3 22 11 3 6-2 15l-5-5-3-9q-7 9-25 6l-5 8z"/>
+          <path fill="#59394b" d="M13 15Q23 5 40 8l5 5q-15-4-24 5z"/>
+          <path fill="none" stroke="#392637" stroke-width="2.5" stroke-linecap="round" d="m18 29 9 1m9 0 9-2m-25 7h5m13 0h5m-17 13q5-2 10 0"/>
+          <use href="#headphones"/>
+        </g>
+        <rect x="79" y="80" width="14" height="4" rx="2" fill="#712b52"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- Counter-Strike: first-person corridor, muzzle flash and a tense facecam. -->
+  <g transform="translate(320)">
+    <path fill="url(#cs)" d="M0 0h320v180H0z"/>
+    <path fill="#645057" d="M0 123 151 74l169 41v65H0z"/><path fill="#a98570" d="m85 141 77-45 119 70H61z"/>
+    <path fill="#8a6059" d="M0 0h89v109L0 145z"/><path fill="#c89475" d="m0 0 82 17v91L0 134z"/>
+    <path fill="#674a4a" d="M35 34h18v84l-18 6zm26 6h10v68l-10 5z"/>
+    <path fill="#644953" d="M212 0h108v158l-109-48z"/><path fill="#b38267" d="m228 17 92 3v110l-91-34z"/>
+    <path fill="#59414a" d="m255 43 39 6v53l-39-13z"/><path fill="#936952" d="M102 62h78v49l-31-5V80h-20v28l-27 7z"/>
+    <path fill="#242733" d="m164 114 7-15 12 1 4 12-7 16h-13z"/><path fill="#39363a" d="M170 97v-7h11l4 8z"/>
+    <g class="move cs-recoil"><g transform="rotate(19 235 127)">
+      <path fill="#322d41" d="M200 137q-13-7-20 3l-11 32 32 4 13-28z"/>
+      <path fill="#5b6274" d="m191 144-11 29-13-1 11-25z"/>
+      <path fill="#1c212a" d="M166 119h61v7h-61z"/><path fill="#78818b" d="M168 120h40v2h-40z"/>
+      <path fill="#272b33" d="M163 117h12v10h-12zm18 1v-9h5l3 9z"/>
+      <path fill="#5d3937" stroke="#302635" stroke-width="2" d="M204 115h31v16h-31z"/>
+      <path stroke="#a86745" stroke-width="2" stroke-linecap="round" d="M207 118h24m-24 5h22"/>
+      <path fill="#333b47" stroke="#20242e" stroke-width="2" d="M232 114h39l11 7-6 12h-44z"/>
+      <path fill="#7b8592" d="M233 115h35l8 5h-43z"/><path fill="#181d26" d="M250 122h18v5h-18zm-18-9v-4h13v4z"/>
+      <path fill="#35343e" stroke="#21232c" stroke-width="2" d="M239 132h15q-3 17-15 23l-9-7q8-7 9-16z"/>
+      <path fill="#68737d" d="M241 133h3q-3 14-12 17l-2-2q8-6 11-15z"/>
+      <path fill="#503739" d="M277 121h18l17 11v9l-22-10h-15z"/>
+      <path fill="#262938" d="m263 130 11 1 1 12-9 8-10-10z"/>
+      <path fill="#626b7c" d="m266 136 12-4 17 10 13 18-20 11-20-22z"/>
+      <path fill="#2a3040" d="m276 149 19-8 25 26v31l-21-10z"/>
+      <path fill="#333847" d="M184 136q1-11 8-13l13 3 5 5-10 9z"/>
+      <path stroke="#687183" stroke-width="2" stroke-linecap="round" d="m193 127 10 3m-11 2 9 3"/>
+      <g class="move cs-shot" opacity="0"><path fill="#ffd17b" d="m164 122-11-4-5-9-3 8-14 3 13 3 5 9 5-7z"/><path fill="#fff1bc" d="m161 122-12-3-6 2 7 3z"/></g>
+    </g></g>
+    <path stroke="#fff1ce" stroke-width="2" d="M144 99h5m5 0h5m-7-7v5m0 5v5"/>
+    <g transform="translate(14 76)">
+      <path fill="#282337" stroke="#db9c81" stroke-width="2" d="m0 10 11-10h103v80l-10 10H0z"/>
+      <path fill="#485675" d="M3 24h108v34H3z"/>
+      <g class="move cs-player">
+        <path fill="#457c9f" d="M10 86q5-18 19-23l18-6 27 1 18 8q11 6 16 20z"/>
+        <path fill="#2c5575" d="m39 60 13-4 10 7 13-7 9 5-15 14-9-6-8 5z"/>
+        <path fill="none" stroke="#8eb3c6" stroke-width="1.5" stroke-linecap="round" d="m54 72 2 11m11-11-2 11"/>
+        <g transform="translate(31 4) scale(.96)" style="--skin:#d79774;--skin-shadow:#a76d59;--headset:#9cc5e4">
+          <use href="#portrait"/>
+          <path fill="#342a37" d="M10 29Q6 25 8 18q2-9 12-12 13-7 27 1 9 5 8 16l-5 7-4-9q-11 2-21-6-2 7-12 10z"/>
+          <path fill="#674145" d="M15 42q4 4 8 4l6-2h5l6 2 8-4q-3 12-17 14-11-1-16-14z"/>
+          <path fill="#ac785e" d="M27 49h9v3h-9z"/>
+          <g fill="#54667c" stroke="#262636" stroke-width="2.5"><rect x="15" y="29" width="14" height="10" rx="3"/><rect x="34" y="29" width="14" height="10" rx="3"/><path d="M29 33h5"/></g>
+          <path stroke="#c7e0e8" stroke-width="1.5" stroke-linecap="round" d="m18 32 6-1m13 1 6-1"/>
+          <use href="#headphones"/>
+        </g>
+      </g>
+    </g>
+  </g>
+
+  <!-- Slots: three sevens and a streamer throwing both hands up. -->
+  <g transform="translate(640)">
+    <path fill="url(#slots)" d="M0 0h320v180H0z"/>
+    <path fill="#754565" d="M0 24h320v4H0zm0 119h320v3H0z"/><path fill="#302037" d="m0 155 320-16v41H0z"/>
+    <path fill="#21172e" stroke="#df997b" stroke-width="4" d="m116 37 12-14h150l15 15v86l-13 13H116z"/>
+    <path fill="#734262" d="M132 43h145v68H132z"/><path fill="#2f2037" d="M137 49h41v54h-41zm46 0h42v54h-42zm47 0h42v54h-42z"/>
+    <g class="move slot-reels" fill="#ff8fc1"><use href="#seven" x="144" y="61"/><use href="#seven" x="191" y="61" fill="#ffe18e"/><use href="#seven" x="238" y="61"/></g>
+    <g class="move slot-spin" opacity="0">
+      <path fill="#79e4d1" d="m157 62 14 14-14 14-14-14zm93 0 14 14-14 14-14-14z"/>
+      <use href="#spark" x="205" y="76" fill="#ff9bca"/>
+    </g>
+    <path fill="#b97672" d="M158 119h88v6h-88z"/><circle cx="295" cy="98" r="8" fill="#e89579"/>
+    <g class="move slot-stars" fill="#ffd987"><use href="#spark" x="302" y="31"/><use href="#spark" x="127" y="146"/><use href="#spark" x="278" y="153"/><use href="#spark" x="82" y="38" fill="#f68fca"/></g>
+    <path fill="#1c172b" stroke="#ba77be" stroke-width="2" d="M9 87 23 73h98v87l-10 11H9z"/>
+    <g class="move slot-cheer">
+      <path fill="none" stroke="#cb886e" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" d="m43 143-15-14-5-18m69 32 13-16 4-19"/>
+      <path fill="#e4a47e" d="M18 112q-4-7 0-10l3-2q5-3 8 4l1 8-6 4zM103 109l-1-6q0-5 5-5h5q5 1 4 7l-3 6z"/>
+      <path fill="#a84b90" d="M21 169q4-16 19-24l13-5 28 1 14 7q14 8 17 21z"/>
+      <path fill="#d073af" d="M32 169q4-11 13-16l10-4q10 7 24 0l10 5q11 5 15 15z"/>
+      <g transform="translate(39 81) scale(.9)" style="--skin:#e9a982;--skin-shadow:#c68268">
+        <use href="#portrait"/>
+        <path fill="#4a2f43" d="M10 29q-5-5-4-13 2-10 13-11 9-6 18-2 13-4 18 6 3 9-4 20l-4-11q-7 3-12-4-8 9-19 7z"/>
+        <path fill="none" stroke="#593340" stroke-width="2.5" stroke-linecap="round" d="M19 32q4-4 8 0m9 0q4-4 8 0"/>
+        <path fill="#773b49" d="M22 43q9 5 19-1-3 11-10 11-7 0-9-10z"/>
+        <path fill="#fff0d8" d="M24 45q8 3 15-1l-2 4-10 1z"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- IRL: a backpacked host walks under street lights with a phone on a grip. -->
+  <g transform="translate(960)">
+    <path fill="url(#walk)" d="M0 0h320v180H0z"/>
+    <circle fill="#f1a98c" cx="253" cy="52" r="28"/>
+    <path fill="#3c3d59" d="M0 104V59l40-21 36 18v43l29-6V47h35v53l37-15v24l58-18 23 10V71h62v109H0z"/>
+    <path fill="#2d334b" d="M0 0h34v130L0 145zm284 41h36v110l-36-19z"/><path fill="#7b5b77" d="M0 134 178 107l142 28v45H0z"/>
+    <path fill="#59445f" d="m86 180 83-55 28-3 109 58z"/><path stroke="#aa7782" stroke-width="2" d="m135 177 60-49m53 48-38-45"/>
+    <path stroke="#313043" stroke-width="4" d="M263 138V43h16m-227 83V41h15"/><path fill="#ffd297" d="M274 40h15l-4 7h-12zm-212-3h14l-3 7H61z"/>
+    <path fill="#b9828b" d="M17 50h5v19h-5zm2 38h6v15h-6zm90-29h17v5h-17zm173 14h16v6h-16z"/>
+    <g class="move walker"><g transform="translate(22 -1) scale(.86 .74)">
+    <g class="move walk-legs"><path fill="#293649" d="m105 156 56-2 20 38 29 33-16 9-37-26-18-31-15 31-36 19-9-12 29-28z"/>
+    <path fill="#e5b3b5" d="m75 214 16 4 1 10-29 8-9-5 2-6zm120 15 14-5 16 9-2 8-24-1z"/></g>
+    <path fill="#283444" d="M101 149 90 97l13-25 43-5 21 36-4 61z"/><path fill="#538a8e" d="m106 93 22-21 30 7 24 40-11 48H96z"/>
+    <path fill="#346571" d="m98 169 7-35 29-14 27 28-2 18z"/>
+    <path fill="#aa6e60" d="m142 69 19-3 5 22-13 10-13-10z"/>
+    <path fill="#d39375" d="M128 43q4-16 25-16 21 2 23 17l2 12 6 6-7 5-1 9q-4 10-16 10-13-1-21-12l-7-13z"/>
+    <path fill="#372b40" d="M125 61q-8-10-4-21 5-16 22-20 11-3 20 2 11 0 16 8 4 8-2 17l-5-6-3-7q-6 7-24 10l-8 14-5 5z"/>
+    <path fill="#a86e5e" d="M131 53q-5-3-7 3-2 7 6 10l5-3z"/>
+    <path fill="none" stroke="#50303d" stroke-width="2.5" stroke-linecap="round" d="m161 50 8-1m-7 8 5-1m-6 15q5 2 10-1"/>
+    <path fill="#78acaa" d="m155 94 16-8 22 29 22-19 9 9-24 31-15-1z"/>
+    <path fill="#d69778" d="m209 103 3-13 11-3 7 8-7 12z"/><path stroke="#2a2b42" stroke-width="4" d="m219 94 7-39"/>
+    <path fill="#222337" stroke="#b98aa8" stroke-width="2" d="m221 50 29 3-1 18-30-3z"/><circle cx="243" cy="59" r="2.5" fill="#ed8f92"/>
+    <path stroke="#264958" stroke-width="5" fill="none" d="M121 83q-18 15-10 52m39-52 13 38"/>
+    </g></g>
+  </g>
+
+  <!-- Late-night chaos: the host freezes staring at a wildly overlit desk. -->
+  <g transform="translate(1280)">
+    <path fill="url(#room)" d="M0 0h320v180H0z"/>
+    <path fill="#25404b" d="M0 23h112v5H0zm0 57h92v4H0z"/><path fill="#7e5373" d="m239 0 4 2v93h-4zm25 0 4 2v102h-4z"/>
+    <path fill="#252238" d="M37 176 50 72q2-15 18-17h87q24 1 27 25l15 96z"/>
+    <g class="move trash-player"><path fill="#7351a0" d="M58 171q4-34 37-51l34-10 40 9q26 10 43 51z"/>
+    <g transform="translate(86 33) scale(1.56)" style="--skin:#dba08b;--skin-shadow:#b47b70">
+      <use href="#portrait"/>
+      <path fill="#302438" d="M10 29Q4 24 8 16l-2-6 8 1 4-8 7 3 7-5 6 4 10-1-1 4q12 4 7 16l-4 7-4-13q-6 2-12-3-5 8-17 8l-4 9z"/>
+      <path fill="#5b3b51" d="M13 17q7-9 15-8l7-4 11 5q-10 1-18 6l-9 2z"/>
+      <path fill="#f7e4da" d="M17 35q0-5 5-5 7 0 7 6 0 5-6 5-6 0-6-6zm17 0q0-5 6-5t7 6q0 5-6 5-7 0-7-6z"/>
+      <ellipse cx="25" cy="36" rx="2.5" ry="3.5" fill="#332637"/><ellipse cx="43" cy="36" rx="2.5" ry="3.5" fill="#332637"/>
+      <path fill="none" stroke="#614050" stroke-width="2" stroke-linecap="round" d="m18 27 8-3m10 1 8 3"/>
+      <path fill="#714758" d="M28 47q1-4 5-4 5 0 6 4-1 5-6 5-4 0-5-5z"/>
+    </g>
+    <path fill="none" stroke="#d69883" stroke-width="15" stroke-linecap="round" stroke-linejoin="round" d="m79 153 13-18m88 19 14-10"/>
+    <path fill="#dba08b" d="M86 137q-4-6 0-12l3-5q2-3 5-1l3 3 4-6q2-2 4 0 2 1 0 5l-4 7q2 5-2 9zm105 3q1-5 8-7h7q5 1 5 5l-1 5-16 4z"/>
+    </g>
+    <path fill="#241c31" d="M0 158h320v22H0z"/><path fill="#3b314b" d="m199 97 81-7 17 49-82 7z"/>
+    <path fill="#439fa7" d="m206 102 69-7 14 38-69 7z"/><path class="move trash-screen" fill="#b3ffdf" d="m215 107 51-6 3 8-52 6zm9 15 39-5 3 6-39 5z"/>
+    <path fill="#1e1c2f" d="m252 140 9 19 16 2v5h-43v-5l16-4-8-15z"/>
+    <path fill="#c99676" d="m34 148 14-6 3 12-16 7zm269-4 13 4-2 12-13-5z"/><path fill="#9373af" d="M9 125h13v30H9z"/>
+    <g fill="#c78aac"><use href="#spark" x="218" y="65"/><use href="#spark" x="279" y="49"/></g>
+    <g class="move trash-alerts" opacity="0"><rect x="217" y="58" width="28" height="21" rx="5" fill="#f77b9d"/><rect x="251" y="48" width="29" height="22" rx="5" fill="#8466e7"/><path stroke="#fff0e7" stroke-width="2" d="M230 63v7m0 3v2m34-21v7m0 3v2"/></g>
+  </g>
+  </g></defs>
+  <use href="#scenes"/>
+  <use href="#scenes" x="1600" style="--demo-play:paused"/>
+</svg>
