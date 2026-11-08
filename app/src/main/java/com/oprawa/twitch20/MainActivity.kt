@@ -102,6 +102,7 @@ private fun TwitchApp() {
         else navigate(Route("channel",ch.login,ch.name))
     }
     DisposableEffect(auth) { onDispose { auth.close() } }
+    DisposableEffect(updater) { onDispose { updater.close() } }
     LaunchedEffect(settings.showClock) {
         while(settings.showClock) { clock=SimpleDateFormat("HH:mm",Locale.getDefault()).format(Date()); delay(15_000) }
     }
@@ -181,7 +182,7 @@ private fun TwitchApp() {
                 Text("Twitch 2.0",fontSize=32.sp,color=TvColors.Text)
                 Text("${BuildConfig.VERSION_NAME} · Android TV",color=TvColors.Muted)
                 Text("Собственный клиент Oprawa. Не является официальным приложением Twitch.",color=TvColors.Text)
-                Text("Kotlin · AndroidX Compose TV · Media3 · OkHttp · Coil\nОткрытые библиотеки: Apache-2.0. Авторские иллюстрации: Oprawa.",color=TvColors.Muted)
+                Text("Kotlin · AndroidX Compose TV · Media3 · OkHttp · Coil\nЛицензии: Apache-2.0 / MPL-2.0. Атрибуция включена в APK и исходники.\nАвторские иллюстрации: Oprawa.",color=TvColors.Muted)
                 UpdateControls(updater)
                 TvAction("Назад",{aboutOpen=false})
             }

@@ -121,7 +121,7 @@ fun PlayerScreen(
         interaction++
     }
 
-    BackHandler {
+    fun handleBack() {
         when {
             chatSettingsOpen -> closeChatSettings(false)
             qualityOpen -> closeQuality()
@@ -129,6 +129,7 @@ fun PlayerScreen(
             else -> onBack()
         }
     }
+    BackHandler { handleBack() }
 
     LaunchedEffect(qualityOpen) {
         if (qualityOpen) autoFocus.requestFocus()
@@ -160,7 +161,12 @@ fun PlayerScreen(
         .onPreviewKeyEvent { event ->
             val native = event.nativeKeyEvent
             val code = native.keyCode
-            if (swallowedKey == code) {
+            if (code == AndroidKeyEvent.KEYCODE_BACK) {
+                // Consume before Compose focus navigation can move child focus to this root.
+                // DOWN (including repeats) does nothing; one uncancelled UP closes one layer.
+                if (native.action == AndroidKeyEvent.ACTION_UP && !native.isCanceled) handleBack()
+                true
+            } else if (swallowedKey == code) {
                 if (native.action == AndroidKeyEvent.ACTION_UP) swallowedKey = null
                 true
             } else if (!hudVisible && !panelOpen && code in revealKeys) {

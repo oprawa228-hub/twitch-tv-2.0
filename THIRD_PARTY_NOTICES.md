@@ -1,0 +1,28 @@
+# Twitch 2.0 — сторонние компоненты
+
+Проверено 2026-11-08 по объявленным зависимостям, опубликованным POM/лицензиям и текущему R8 mapping. Это компактный перечень основных runtime-компонентов и включённых транзитивных реализаций, не перечень инструментов сборки и тестовых библиотек.
+
+Текст Apache License 2.0 находится в корневом `LICENSE` и включается в APK как `assets/LICENSE.txt`. Этот перечень включается как `assets/THIRD_PARTY_NOTICES.txt`. Исходные уведомления библиотек сохраняют собственную силу; этот файл не меняет их условия.
+
+| Компонент | Использование / версия | Авторы и лицензия | Первичный источник |
+|---|---|---|---|
+| AndroidX / Jetpack Compose | UI, lifecycle, навигация фокуса, системная интеграция. Compose BOM 2026.06.01; TV Material 1.1.0; Activity 1.12.4; Lifecycle 2.10.0; Core 1.17.0. Также runtime-модули Annotation, Collection, SavedState, AppCompat Resources, ExifInterface, ProfileInstaller | The Android Open Source Project и участники; Apache-2.0 | [Исходники](https://github.com/androidx/androidx), [лицензия](https://raw.githubusercontent.com/androidx/androidx/androidx-main/LICENSE.txt) |
+| AndroidX Media3 | ExoPlayer, HLS, Compose video surface, MediaSession; 1.11.1 | The Android Open Source Project и участники; Apache-2.0 | [Исходники](https://github.com/androidx/media), [лицензия](https://raw.githubusercontent.com/androidx/media/release/LICENSE) |
+| Kotlin standard library | Kotlin runtime; 2.3.10 | JetBrains и участники Kotlin; Apache-2.0 | [Исходники](https://github.com/JetBrains/kotlin), [лицензия](https://raw.githubusercontent.com/JetBrains/kotlin/master/license/LICENSE.txt) |
+| kotlinx.coroutines | Coroutines, StateFlow; 1.10.2 | JetBrains и участники Kotlin; Apache-2.0 | [Исходники](https://github.com/Kotlin/kotlinx.coroutines), [лицензия](https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/master/LICENSE.txt) |
+| OkHttp | HTTP, WebSocket, загрузка обновлений; 4.12.1 | Square и участники; Apache-2.0 | [Исходники](https://github.com/square/okhttp/tree/parent-4.12.1), [лицензия](https://raw.githubusercontent.com/square/okhttp/parent-4.12.1/LICENSE.txt) |
+| Okio | Буферизованный ввод/вывод, транзитивная зависимость OkHttp/Coil | Square и участники; Apache-2.0 | [Исходники](https://github.com/square/okio), [лицензия](https://raw.githubusercontent.com/square/okio/master/LICENSE.txt) |
+| Coil | Compose images, OkHttp integration, SVG decoder; 3.4.0 | Coil Contributors; Apache-2.0 | [Исходники](https://github.com/coil-kt/coil/tree/3.4.0), [лицензия](https://raw.githubusercontent.com/coil-kt/coil/3.4.0/LICENSE.txt) |
+| AndroidSVG | SVG renderer, транзитивно через Coil SVG; 1.4 | Copyright 2013–2018 Cave Rock Software Ltd; Apache-2.0 | [Исходники](https://github.com/BigBadaboom/androidsvg), [лицензия](https://raw.githubusercontent.com/BigBadaboom/androidsvg/master/LICENSE) |
+| Guava / failureaccess | Коллекции и служебные классы concurrent, транзитивные runtime-компоненты | Google и участники; Apache-2.0 | [Исходники](https://github.com/google/guava), [лицензия](https://raw.githubusercontent.com/google/guava/master/LICENSE) |
+| Public Suffix List | Данные доменных суффиксов в OkHttp `publicsuffixes.gz` | Public Suffix List contributors; **MPL-2.0** | [Исходные данные](https://publicsuffix.org/list/public_suffix_list.dat), [лицензия](https://www.mozilla.org/en-US/MPL/2.0/), [уведомление OkHttp](https://raw.githubusercontent.com/square/okhttp/parent-4.12.1/okhttp/src/main/resources/okhttp3/internal/publicsuffix/NOTICE) |
+
+## Public Suffix List
+
+Встроенные данные поставляются вместе с OkHttp без изменения со стороны Twitch 2.0. В APK сохранён upstream-файл `okhttp3/internal/publicsuffix/NOTICE`, который указывает на исходные данные и MPL-2.0. Действующая исходная форма списка доступна по приведённой выше официальной ссылке. Эти данные не обозначаются как Apache-2.0.
+
+## Материалы приложения
+
+Новая реализация Twitch 2.0 распространяется под Apache-2.0. Авторские иллюстрации Oprawa используются с разрешения владельца для этого проекта и не перелицензируются автоматически; реестр находится в `docs/ART.md`. Названия и знаки Twitch принадлежат соответствующему правообладателю. Приложение не является официальным продуктом Twitch.
+
+Streamlink использовался как источник технического исследования; его Python runtime и готовый клиент в APK не включены. Инструменты сборки и тестовые зависимости не перечислены здесь как библиотеки release APK.

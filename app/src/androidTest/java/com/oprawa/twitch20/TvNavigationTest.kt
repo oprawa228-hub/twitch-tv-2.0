@@ -133,6 +133,32 @@ class TvNavigationTest {
         device.pressBack()
     }
 
+    @Test fun oneBackClosesPlayerSettingsAndKeepsHud() {
+        val card = device.findObject(By.focused(true))
+            ?: throw AssertionError("Нет фокуса первого прямого эфира")
+        assertTrue("Для проверки нужен настоящий прямой эфир",
+            card.contentDescription?.contains("●") == true)
+        device.pressDPadCenter()
+        assertTrue("Прямой эфир не начал воспроизведение",
+            device.wait(Until.hasObject(By.text("Пауза")), 45_000))
+        // Reveal only when hidden; a confirm on visible HUD would pause live playback.
+        if (!device.hasObject(By.text("Качество"))) device.pressDPadCenter()
+        focusText("Настройки")
+        device.pressDPadCenter()
+        assertTrue("Не открылась панель настроек плеера",
+            device.wait(Until.hasObject(By.text("Настройки просмотра")), 5_000))
+        awaitStableFocus()
+
+        device.pressBack() // Exactly one physical Back down/up pair.
+
+        assertTrue("Первый Back только переместил фокус и оставил панель",
+            device.wait(Until.gone(By.text("Настройки просмотра")), 3_000))
+        assertTrue("Back скрыл HUD вместе с панелью", device.hasObject(By.text("Качество")))
+        assertTrue("Back остановил воспроизведение", device.hasObject(By.text("Пауза")))
+        assertFalse("Back вышел в каталог", device.hasObject(By.text("Прямые эфиры")))
+        assertEquals(packageName, device.currentPackageName)
+    }
+
     private fun openSettings() {
         focusText("Настройки")
         device.pressDPadCenter()

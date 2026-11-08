@@ -14,6 +14,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DecoderCounters
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
@@ -110,6 +111,16 @@ class PlaybackSession(context: Context) {
     init {
         player.addListener(listener)
         player.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+            private var videoWindowStartMs = 0L
+
+            override fun onVideoEnabled(
+                eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                decoderCounters: DecoderCounters,
+            ) {
+                videoWindowStartMs = eventTime.realtimeMs
+                Log.i("TwitchPlayback", "video_enabled window_start_ms=$videoWindowStartMs")
+            }
+
             override fun onRenderedFirstFrame(
                 eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
                 output: Any,
@@ -130,8 +141,28 @@ class PlaybackSession(context: Context) {
                 droppedFrames: Int,
                 elapsedMs: Long,
             ) {
-                mutableState.value = mutableState.value.copy(
-                    droppedFrames = mutableState.value.droppedFrames + droppedFrames)
+                val total = mutableState.value.droppedFrames + droppedFrames
+                mutableState.value = mutableState.value.copy(droppedFrames = total)
+                Log.i("TwitchPlayback", "dropped_video_frames=$droppedFrames elapsed_ms=$elapsedMs" +
+                    " session_total=$total window_start_ms=$videoWindowStartMs")
+            }
+
+            override fun onVideoDisabled(
+                eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                decoderCounters: DecoderCounters,
+            ) {
+                // Numeric diagnostics only. Counters describe this renderer-enabled window,
+                // including intentional skips separately from frames dropped for lateness.
+                decoderCounters.ensureUpdated()
+                Log.i("TwitchPlayback", "video_disabled window_start_ms=$videoWindowStartMs" +
+                    " window_elapsed_ms=${eventTime.realtimeMs - videoWindowStartMs}" +
+                    " rendered=${decoderCounters.renderedOutputBufferCount}" +
+                    " dropped=${decoderCounters.droppedBufferCount}" +
+                    " dropped_input=${decoderCounters.droppedInputBufferCount}" +
+                    " skipped_input=${decoderCounters.skippedInputBufferCount}" +
+                    " skipped_output=${decoderCounters.skippedOutputBufferCount}" +
+                    " max_consecutive_dropped=${decoderCounters.maxConsecutiveDroppedBufferCount}" +
+                    " dropped_to_keyframe=${decoderCounters.droppedToKeyframeCount}")
             }
         })
         startProgressUpdates()

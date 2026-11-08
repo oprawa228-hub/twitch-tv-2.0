@@ -35,7 +35,6 @@ import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.resumeWithException
 
 data class UpdateState(
@@ -56,9 +55,9 @@ class UpdateManager(context: Context) {
     private val mutable = MutableStateFlow(UpdateState())
     val state = mutable.asStateFlow()
     private val mutex = Mutex()
-    private val publicationLock = Any()
-    private val generation = AtomicLong()
+    private val operationGate = UpdateOperationGate()
     private var operationToken = 0L
+    @Volatile private var closed = false
     @Volatile private var job: Job? = null
     @Volatile private var call: Call? = null
     private var verifiedFile: File? = null
@@ -193,18 +192,30 @@ class UpdateManager(context: Context) {
     }
 
     fun cancel() {
-        val active = synchronized(publicationLock) {
-            generation.incrementAndGet()
+        var active: Pair<Call?, Job?> = null to null
+        operationGate.invalidate {
             if (mutable.value.status in setOf("checking", "downloading"))
                 mutable.value = mutable.value.copy(status = "cancelled", message = "Операция отменена", progress = 0f)
-            call to job
+            active = call to job
         }
         cleanup { active.first?.cancel() }
         active.second?.cancel()
     }
 
+    fun close() {
+        closed = true
+        cancel()
+        verifiedFile = null
+        cleanup {
+            client.dispatcher.cancelAll()
+            client.connectionPool.evictAll()
+            client.dispatcher.executorService.shutdown()
+        }
+    }
+
     /** Called by the Activity; Android owns the final install confirmation. */
     fun install(activity: Activity) {
+        if (closed) return
         val release = mutable.value.available ?: return
         val apk = verifiedFile?.takeIf { it.isFile } ?: run {
             mutable.value = mutable.value.copy(status = "error", message = "Сначала скачайте обновление")
@@ -229,23 +240,29 @@ class UpdateManager(context: Context) {
         }
     }
 
-    private suspend fun execute(status: String, message: String, release: UpdateRelease? = null, action: suspend () -> Unit) =
+    private suspend fun execute(status: String, message: String, release: UpdateRelease? = null, action: suspend () -> Unit) {
+        if (closed) return
+        // Reserve identity before either dispatch or mutex suspension. Cancel invalidates queued work too.
+        val token = operationGate.issue()
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 val runningJob = currentCoroutineContext()[Job]
-                val token = synchronized(publicationLock) {
-                    generation.incrementAndGet().also {
-                        operationToken = it
+                var registered = false
+                operationGate.admit(token) {
+                    if (!closed) {
+                        operationToken = token
                         job = runningJob
                         mutable.value = UpdateState(status, message, available = release)
+                        registered = true
                     }
                 }
+                if (!registered) return@withLock
                 try { action() }
                 catch (cancelled: CancellationException) {
-                    if (generation.get() == token) publish(mutable.value.copy(status = "cancelled", message = "Операция отменена"))
+                    publish(mutable.value.copy(status = "cancelled", message = "Операция отменена"))
                     throw cancelled
                 } catch (_: Exception) {
-                    if (generation.get() == token) publish(UpdateState("error", "Не удалось получить проверенное обновление. Проверьте сеть и повторите.", available = release))
+                    publish(UpdateState("error", "Не удалось получить проверенное обновление. Проверьте сеть и повторите.", available = release))
                 } finally {
                     val finished = call
                     cleanup { finished?.cancel() }
@@ -254,9 +271,10 @@ class UpdateManager(context: Context) {
                 }
             }
         }
+    }
 
-    private fun publish(value: UpdateState) = synchronized(publicationLock) {
-        if (generation.get() == operationToken) mutable.value = value
+    private fun publish(value: UpdateState) {
+        operationGate.admit(operationToken) { mutable.value = value }
     }
 
     /** REST limits are shared by IP; the fallback remains pinned to our two repository files. */
