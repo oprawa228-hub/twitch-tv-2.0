@@ -230,7 +230,7 @@ fun PlayerScreen(
                         .padding(horizontal = 20.dp, vertical = 12.dp))
             }
 
-            if (state.status == PlaybackStatus.Error) {
+            if (state.status == PlaybackStatus.Error && !qualityOpen) {
                 Column(Modifier.align(Alignment.Center).width(440.dp)
                     .background(PlayerPanel, RoundedCornerShape(8.dp)).padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -240,6 +240,9 @@ fun PlayerScreen(
                         fontSize = 16.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         PlayerAction("Повторить", Modifier.focusRequester(retryFocus)) { onRetry() }
+                        if (state.qualityOptions.isNotEmpty()) {
+                            PlayerAction("Качество", Modifier.focusRequester(qualityFocus)) { qualityOpen = true }
+                        }
                         PlayerAction("Назад") { onBack() }
                     }
                 }

@@ -10,6 +10,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Timeline
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
@@ -34,7 +35,7 @@ import kotlin.math.roundToInt
 
 enum class PlaybackStatus { Idle, Buffering, Ready, Ended, Error }
 
-data class QualityOption(val id: String, val label: String)
+data class QualityOption(val id: String, val label: String, val height: Int? = null, val frameRate: Int? = null)
 
 data class PlaybackState(
     val mediaId: String = "",
@@ -72,6 +73,7 @@ class PlaybackSession(context: Context) {
     private var bufferingStartedAtMs = 0L
     private val metrics = PlaybackMetrics()
     private var progressiveSources: List<VideoVariant> = emptyList()
+    private val qualityPreference = QualityPreference()
 
     private val http = OkHttpClient.Builder().build()
     val player: ExoPlayer = ExoPlayer.Builder(context.applicationContext)
@@ -87,7 +89,10 @@ class PlaybackSession(context: Context) {
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) { publish() }
 
-        override fun onTracksChanged(tracks: Tracks) { publishTracks(tracks) }
+        override fun onTracksChanged(tracks: Tracks) {
+            // A queued callback from a replaced item must not restore its TrackGroup.
+            if (tracks == player.currentTracks) publishTracks(tracks)
+        }
 
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo,
             newPosition: Player.PositionInfo, reason: Int) {
@@ -192,6 +197,13 @@ class PlaybackSession(context: Context) {
         requestStartedAtMs: Long = SystemClock.elapsedRealtime(),
         progressiveVariants: List<VideoVariant> = emptyList()) {
         check(!released) { "Playback session has been released" }
+        val previous = mutableState.value
+        val sameMedia = previous.mediaId == mediaId
+        // ON_STOP pauses the player; a source resolving afterwards must retain
+        // the user's pre-background intent for the following ON_START.
+        val requestedPlayback = if (!sameMedia) true
+            else if (backgrounded) resumeAfterBackground else player.playWhenReady
+        qualityPreference.beginMedia(mediaId)
         backgrounded = false
         startProgressUpdates()
         recoveredLiveWindow = false
@@ -200,15 +212,17 @@ class PlaybackSession(context: Context) {
         logMetrics(reason = 1, nowMs = startedAtMs)
         metrics.beginAttempt(requestStartedAtMs, startedAtMs)
         progressiveSources = progressiveVariants.toList()
+        val progressive = qualityPreference.restoreProgressive(progressiveSources)
         mutableState.value = PlaybackState(mediaId = mediaId, isLive = isLive,
-            status = PlaybackStatus.Buffering, playWhenReady = true,
-            qualityOptions = progressiveSources.map { QualityOption(it.id, it.label) },
-            selectedQualityId = progressiveSources.firstOrNull()?.id,
-            activeQuality = progressiveSources.firstOrNull()?.label.orEmpty(),
+            status = PlaybackStatus.Buffering, playWhenReady = requestedPlayback,
+            qualityOptions = if (progressiveSources.isNotEmpty()) progressiveSources.map { QualityOption(it.id, it.label) }
+                else if (sameMedia) previous.qualityOptions else emptyList(),
+            selectedQualityId = progressive?.id ?: qualityPreference.pendingHlsId(
+                if (sameMedia) previous.qualityOptions else emptyList()),
+            activeQuality = progressive?.label.orEmpty(),
             canAutoSelectQuality = progressiveSources.isEmpty())
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-            .clearOverridesOfType(C.TRACK_TYPE_VIDEO).build()
-        val item = MediaItem.Builder().setUri(url).setMediaId(mediaId).apply {
+        player.trackSelectionParameters = qualityParameters().build()
+        val item = MediaItem.Builder().setUri(progressive?.url ?: url).setMediaId(mediaId).apply {
             if (isLive) setLiveConfiguration(MediaItem.LiveConfiguration.Builder()
                 .setMinPlaybackSpeed(0.97f).setMaxPlaybackSpeed(1.03f).build())
         }.build()
@@ -216,7 +230,7 @@ class PlaybackSession(context: Context) {
         player.setMediaItem(item)
         if (!isLive && startPositionMs > 0) player.seekTo(startPositionMs)
         player.prepare()
-        player.play()
+        player.playWhenReady = requestedPlayback
     }
 
     fun pause() { if (!released) player.pause() }
@@ -253,12 +267,14 @@ class PlaybackSession(context: Context) {
 
     fun selectQuality(id: String?) {
         if (released) return
+        val failed = mutableState.value.status == PlaybackStatus.Error || player.playerError != null
+        val current = mutableState.value.copy(positionMs = player.currentPosition.coerceAtLeast(0),
+            playWhenReady = player.playWhenReady)
         if (progressiveSources.isNotEmpty()) {
             val source = progressiveSources.firstOrNull { it.id == id } ?: return
-            if (source.id == mutableState.value.selectedQualityId) return
-            val next = PlaybackPolicy.qualitySwitchState(mutableState.value.copy(
-                positionMs = player.currentPosition.coerceAtLeast(0),
-                playWhenReady = player.playWhenReady), source.id, source.label)
+            qualityPreference.rememberProgressive(source.id)
+            if (source.id == current.selectedQualityId && !failed) return
+            val next = PlaybackPolicy.qualitySwitchState(current, source.id, source.label)
             metrics.markPreparation(BufferingReason.QUALITY_SWITCH, SystemClock.elapsedRealtime())
             bufferingStartedAtMs = 0L
             mutableState.value = next
@@ -267,18 +283,29 @@ class PlaybackSession(context: Context) {
             player.playWhenReady = next.playWhenReady
             return
         }
-        val builder = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-        if (id != null) {
-            val parts = id.split(':').mapNotNull(String::toIntOrNull)
-            if (parts.size != 2) return
-            val group = player.currentTracks.groups.getOrNull(parts[0]) ?: return
-            if (group.type != C.TRACK_TYPE_VIDEO || parts[1] !in 0 until group.length ||
-                !group.isTrackSupported(parts[1])) return
-            builder.setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, parts[1]))
-        }
+        val choice = if (id == null) null else current.qualityOptions.firstOrNull { it.id == id } ?: return
+        qualityPreference.rememberHls(choice)
         metrics.markPreparation(BufferingReason.QUALITY_SWITCH, SystemClock.elapsedRealtime())
-        player.trackSelectionParameters = builder.build()
-        mutableState.value = mutableState.value.copy(selectedQualityId = id)
+        if (failed) {
+            if (player.currentMediaItem == null) return
+            val recovery = qualityRecoveryPlan(current, selectedId = choice?.id)
+            mutableState.value = recovery.state
+            bufferingStartedAtMs = 0L
+            recoveredLiveWindow = false
+            // Apply semantic limits before preparing, so an explicit lower-quality
+            // choice need not first instantiate the previous failing high variant.
+            player.trackSelectionParameters = qualityParameters().build()
+            if (recovery.seekPositionMs == null) player.seekToDefaultPosition()
+            else player.seekTo(recovery.seekPositionMs)
+            player.prepare()
+            player.playWhenReady = recovery.state.playWhenReady
+        } else {
+            publishTracks(player.currentTracks)
+            if (id == null) {
+                player.trackSelectionParameters = qualityParameters().build()
+                mutableState.value = mutableState.value.copy(selectedQualityId = null)
+            }
+        }
     }
 
     fun onBackground() {
@@ -364,7 +391,8 @@ class PlaybackSession(context: Context) {
     }
 
     private fun publishTracks(tracks: Tracks) {
-        if (progressiveSources.isNotEmpty()) return
+        if (released || player.currentMediaItem?.mediaId != mutableState.value.mediaId ||
+            progressiveSources.isNotEmpty()) return
         val qualities = mutableListOf<QualityOption>()
         var active = ""
         tracks.groups.forEachIndexed { groupIndex, group ->
@@ -372,14 +400,37 @@ class PlaybackSession(context: Context) {
                 if (group.isTrackSupported(trackIndex)) {
                     val format = group.getTrackFormat(trackIndex)
                     val height = format.height.takeIf { it > 0 }
-                    val fps = format.frameRate.takeIf { it > 30 }?.roundToInt()
-                    val label = if (height != null) "${height}p${fps ?: ""}" else "Исходное"
-                    qualities += QualityOption("$groupIndex:$trackIndex", label)
+                    val fps = format.frameRate.takeIf { it > 0 && it.isFinite() }?.roundToInt()
+                    val label = if (height != null) "${height}p${fps?.takeIf { it > 30 } ?: ""}" else "Исходное"
+                    qualities += QualityOption("$groupIndex:$trackIndex", label, height, fps)
                     if (group.isTrackSelected(trackIndex)) active = label
                 }
             }
         }
-        mutableState.value = mutableState.value.copy(qualityOptions = qualities, activeQuality = active)
+        // Media3 clears tracks during error/prepare. Keep the last supported menu
+        // as semantic recovery choices, never as reusable TrackGroup references.
+        if (qualities.isEmpty()) return
+        val restored = qualityPreference.restoreHls(qualities)
+        val builder = qualityParameters()
+        restored?.let { option ->
+            val indices = option.id.split(':').map(String::toInt)
+            val group = tracks.groups[indices[0]]
+            builder.setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, indices[1]))
+        }
+        val parameters = builder.build()
+        if (parameters != player.trackSelectionParameters) player.trackSelectionParameters = parameters
+        mutableState.value = mutableState.value.copy(qualityOptions = qualities,
+            selectedQualityId = restored?.id, activeQuality = active)
+    }
+
+    private fun qualityParameters(): TrackSelectionParameters.Builder {
+        val preferred = qualityPreference.preferredHls
+        return player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            .clearVideoSizeConstraints().setMaxVideoFrameRate(Int.MAX_VALUE)
+            .apply {
+                preferred?.height?.let { setMaxVideoSize(Int.MAX_VALUE, it) }
+                preferred?.frameRate?.let { setMaxVideoFrameRate(it) }
+            }
     }
 
     private fun logMetrics(reason: Int, nowMs: Long) {

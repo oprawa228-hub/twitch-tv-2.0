@@ -1,14 +1,30 @@
 """Native Android evidence. Always targets the new project's named emulator."""
 from pathlib import Path
-import argparse, re, subprocess, sys, xml.etree.ElementTree as ET
+import argparse, re, subprocess, sys, time, msvcrt, xml.etree.ElementTree as ET
 sys.stdout.reconfigure(encoding='utf-8')
 ROOT=Path(__file__).resolve().parents[1]
 ADB=ROOT/'.tools/android-sdk/platform-tools/adb.exe'
 SERIAL='emulator-5560'
 def adb(*args,**kwargs):return subprocess.run([str(ADB),'-s',SERIAL,*args],check=True,**kwargs)
 def hierarchy():
-    adb('shell','uiautomator','dump','/sdcard/window.xml',stdout=subprocess.DEVNULL)
-    return adb('exec-out','cat','/sdcard/window.xml',capture_output=True).stdout
+    # A manual panel probe and a periodic sampler must not replace each other's
+    # UiAutomation service or shared XML. Lock is per target, never cross-device.
+    lockpath=ROOT/'.local'/f'ui-dump-{SERIAL}.lock'
+    lockpath.parent.mkdir(exist_ok=True)
+    with lockpath.open('a+b') as lock:
+        if lock.tell()==0:lock.write(b'0');lock.flush()
+        deadline=time.monotonic()+40
+        while True:
+            lock.seek(0)
+            try:msvcrt.locking(lock.fileno(),msvcrt.LK_NBLCK,1);break
+            except OSError:
+                if time.monotonic()>=deadline:raise TimeoutError('UI observation lock busy')
+                time.sleep(.1)
+        try:
+            adb('shell','uiautomator','dump','/sdcard/window.xml',stdout=subprocess.DEVNULL)
+            return adb('exec-out','cat','/sdcard/window.xml',capture_output=True).stdout
+        finally:
+            lock.seek(0);msvcrt.locking(lock.fileno(),msvcrt.LK_UNLCK,1)
 def bounds(node):return tuple(map(int,re.findall(r'\d+',node.get('bounds',''))))
 def focus(label):
     for _ in range(24):

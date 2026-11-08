@@ -17,6 +17,14 @@
 - [ ] Точный release APK: 20+ live open/return с памятью после закрытия, длительный live минимум30мин с чатом/панелями, сеть→retry, pause/foreground, VOD seek/resume/completion, clip quality, settings persistence. Измерять actual durations/decoder counters, не путать emulator иphysicalTV.
 - [ ] Выпуск beta.5/code7 с постоянной подписью, публичные hashes/канал, реальный OTA6→7 с настройками и VOD history. README/HANDOFF/TEST_RESULTS/SCOPE/отчёт покрытия обновить по фактическим результатам. Дизайн не объявлять завершённым.
 
+### Дополнение по фактическому soak
+
+720p60 на software AVC эмулятора дважды прервалось runtime4003:319.161s и1425.246s. Второй случай повторился без периодическогоUIAutomation, поэтому нельзя списывать decoderfailure на инструмент. Непрерывный30minPASS пока отсутствует. Новый объём стабилизации:
+
+- [x] Session/policy/tests (pagination_review): ручной выбор качества изError запускает восстановление и сохраняет pause/position; freshresolverRetry SAMEmedia сохраняет семантический выбор без устаревших trackindexes; newmedia/Auto/unavailablequality имеют явное поведение. RED→GREEN.
+- [x] RootUI: доступное «Качество» на экране ошибки, управляемое D-pad; выбор480p после реальной сетевой ошибки и Retry с сохранением выбора. Native pause-buffering helper исправлен: live «К эфиру», а не VOD «Смотреть»; прежний timingassert не считается PASS. Current121JVM/8Android84.861с; настоящийerror→Quality360→video и Retry→360PASS. Дополнительно actualMedia3 RED2/1→GREEN закрывает background source completion intent.
+- [ ] Новый exact candidate/code7 (старыйещёнезагруженвdist/Release), полный JVM, targetednative и длительный480p прогон. Старые720p failures остаются известным ограничением softwaredecoder; не объявлять их исправленными сменой качества.
+
 Review focus: logout во время refresh; отмена после сохранения DCF; paused buffering→Home; завершение короткого clip; скрытый/переподключающийся чат; смена MP4 источника без сброса позиции; перезагрузка каталога с удалённой выбранной карточкой; отказ внешнего GQL при здоровом Helix.
 
 ## Завершённый этап — внутренняя часть beta.4

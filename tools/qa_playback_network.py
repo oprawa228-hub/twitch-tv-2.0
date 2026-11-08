@@ -43,7 +43,7 @@ with logpath.open('wb') as output:
         assert 'Пауза' in state
         # HUD on foreground focuses its Pause action.
         key('KEYCODE_DPAD_CENTER')
-        wait_for(lambda t: 'Смотреть' in t and 'Буферизация…' in t, 10)
+        wait_for(lambda t: 'К эфиру' in t and 'Буферизация…' in t, 10)
         observe('beta5-buffering-paused')
         print('PASS buffering pause intent', flush=True)
         key('KEYCODE_DPAD_CENTER')

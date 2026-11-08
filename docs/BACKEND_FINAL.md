@@ -1,77 +1,66 @@
-# Внутренняя часть — матрица завершения beta.5
+# Внутренняя часть Twitch 2.0 — beta.5
 
-Срез проверки: **2026-11-08**. Основание — [TASK.txt](TASK.txt), разделы 4, 6, 7, 11 и 12. Этот документ фиксирует реализацию и доказательства; он не заменяет единственный текущий [PLAN.md](PLAN.md). Визуальная переработка отложена по просьбе пользователя.
+Срез: 2026-11-08. Объём определяется [TASK.txt](TASK.txt), единый план — [PLAN.md](PLAN.md). Дизайн отложен по просьбе пользователя. Собственный сервер не требуется.
 
-**Статус: реализация изменений завершена, расширенная проверка и доставка beta.5 ещё выполняются root.** Наличие успешной сборки и отдельных сценариев не означает завершения всех проверок ниже.
+**Текущий статус:** реализация и независимое ревью завершены; проверка точного APK и доставка выполняются. Ниже результаты текущего кандидата отделены от предварительного.
 
-## Артефакт и границы доказательств
+## Текущий кандидат
 
-- Точный подписанный minified release candidate: **0.1.0-beta.5 / versionCode 7**, пакет `com.oprawa.twitch20`.
-- SHA-256, сообщённый root для проверяемого кандидата: `68a655937e417d763c3b18c57ddb9a4d1baaf30628217160804fafffe01aa0fb`.
-- Полный JVM-прогон после последних исправлений preview чата и HLS-метрик: **107 PASS, 0 failures, 0 errors, 0 skipped**. Сверены XML в `app/build/test-results/testDebugUnitTest/`; `evidence/backend-final-candidate.log` подтверждает `testDebugUnitTest`, R8 и `assembleRelease`, `BUILD SUCCESSFUL` за 1 мин 1 с.
-- Android instrumentation: **6 PASS / 81.817 с**, `evidence/backend-final-instrumentation.log`. Это debug APK **до двух последних исправлений preview чата и HLS-метрик**. Эти шесть тестов не объявляются повторно выполненными на точном release candidate.
-- Последующие native-сценарии root выполняет на точном release через D-pad. Они перечислены отдельно; результат одного сценария не распространяется на остальные.
-- На момент этого среза **публикация code7, публичное совпадение APK/feed и OTA 6→7 ещё не подтверждены**. Предыдущая опубликованная beta.4 и её OTA относятся к самостоятельному этапу: [BACKEND_BETA4.md](BACKEND_BETA4.md).
+- `com.oprawa.twitch20`, `0.1.0-beta.5`, versionCode **7**, minSdk23, signed/minified release, **2 733 968 байт**.
+- SHA-256: `cb26d9eb713e246725ca70d9e0ebd050a0a3fb30a948a69ae80e45434bd21f10`.
+- Сертификат SHA-256: `f81f51fd47d318aaf79f1fe3c81159fe6eca405f881f4f0b19d097d1c4b006f7`, идентичность прежних выпусков сохранена.
+- После последних изменений: **121 JVM PASS**, полный **8 Android PASS / 84.861 с**. Логи `evidence/beta5-candidate4-build.log`, `beta5-candidate4-instrumentation.log`; XML JVM в `app/build/test-results/testDebugUnitTest/`.
+- Android suite состоит из шести сценариев D-pad и двух проверок настоящего Media3 на сохранение play/pause intent. Последние используют локальный asset URI только для переходов состояния и **не доказывают декодирование или сеть**.
+- Подписанный release установлен поверх прежних данных на `Twitch20Test`/5560; аккаунт сохранился. Это ручная install compatibility, пока не OTA.
 
-Обозначения: **JVM/fixture** — контролируемые данные или виртуальное время, без настоящего аккаунта/декодера; **Android debug** — установленное приложение и D-pad instrumentation; **native release** — точный подписанный APK, внешние D-pad действия и наблюдения root; **предыдущий этап** — доказательство относится к указанной более ранней версии. Локальные журналы/XML/PNG в `evidence/` исключены из Git и не являются публичными ссылками на артефакты.
+Raw XML/PNG/logs в `evidence/` исключены из Git целиком. В публичном отчёте нет токенов, signed media URL или текста чата.
 
-## Покрытие требований
+## Реализация и покрытие
 
-| Требование TASK | Реализовано | Фактически проверено | Оставшаяся граница |
-|---|---|---|---|
-| §4: эфиры, категории, поиск, канал | После входа Helix-каталог со страницами; поиск канала; официальный header через `users`/`streams`; ошибка header не блокирует записи/клипы. `CatalogPager` сохраняет карточки при ошибке и отмене, дедуплицирует ID. | JVM: parser, page/retry/cancel/cursor bounds, Helix-каталог и новый header. Android debug: более 30 эфиров, возврат к карточке после канала. Предыдущий beta.4 release: offline следующей страницы → сохранение карточек → явный retry. | Guest-продолжение блокируется Twitch; поиск и guest дают ограниченную выдачу. Предел общего каталога 1000, кэш трёх каталогов. Полный неизменный снимок движущегося live-рейтинга не обещается. |
-| §4/6: вход и отслеживаемые | Официальный DCF без client secret; `user:read:follows`; live/offline follows со страницами. OAuth остаётся в `TwitchAuth`; `helixGet` не выдаёт токены вызывающему коду. | Настоящий вход и личные follows ранее подтверждены пользователем. Beta.4 release: восстановление сохранённого аккаунта после cold-start offline за 59 с без нового входа. JVM: auth protocol, followed merge/pages и Helix boundary. | Настоящие expiry/refresh/revoke не проверены. Пользователь ранее попросил пропустить дальнейшие личные проверки; нового входа или отзыва разрешения не выполняли. |
-| §6/12: жизненный цикл авторизации | Startup/hourly validate; минутная переоценка состояния; сохранённая, ещё не опубликованная сессия повторно валидируется после DCF-error/cancel. Refresh→save защищён от отмены экрана на срок до 30 с; logout запрещает позднее восстановление. | JVM: cold-start offline, новая сессия во время idle, отмена завершающей проверки, hourly healthy interval, пустой vault, сохранение refresh-ответа после cancel, timeout, epoch/logout guard. | Это проверки реально используемых helpers, **не сквозной HTTP→AndroidKeyStore тест TwitchAuth**. Новый DCF error/cancel regression не выдаётся за реальный вход Twitch на release. |
-| §4/6: live, записи и клипы | Получение источника отдельно от Media3. Гостевой GQL/Usher изолирован; ограничения источника дают ошибку. Clip resolver возвращает доступные HTTPS MP4 варианты с разрешением/FPS. | Реальные live/VOD/clip ранее декодированы в Android. JVM beta.5: варианты клипа, сортировка, дедупликация, подпись URL, access-denied, пустой/непригодный источник и redacted diagnostics. Native release beta.5: настоящий live и короткий clip. | Доступ к источникам основан на недокументированной web-интеграции и может меняться. Subscriber-only/Turbo/закрытые материалы не гарантированы; собственный DCF не объявляется разрешением на любой источник. |
-| §4: качество, пауза, перемотка | HLS track selection и Auto; для MP4 — ручной выбор реальных вариантов без обещания ABR. Switch сохраняет текущую позицию и `playWhenReady`. Кнопка Pause учитывает намерение воспроизведения даже во время buffering. | JVM: playback state/seek policies и bounded seek. Ранее native: VOD seek и HLS 720p60. Beta.5 native: paused MP4 1080p60→720p60 сохраняет **0:13 / 0:30** и действие «Смотреть»; `beta5-quality-native.log`, `beta5-quality-finish.log`. | Окончательное settled/resume после смены MP4 качества на момент среза **ожидает подтверждения root**. Helper-policy тест не доказывает сам Media3 switch. |
-| §4/12: история и foreground | До background/dispose/retry и каждые 15 с сохраняется позиция. Завершённая запись удаляет resume point. Foreground очищает stale error перед prepare; live возвращается к live edge, запись — к сохранённой позиции; pause intent сохраняется. | JVM: границы history, удаление завершённой позиции, foreground error/state и seek. Native release beta.5: clip дошёл до **0:30**, после возврата и нового открытия — **0:00 / 0:30** (`beta5-clip-completion.log`, XML/PNG `beta5-clip-ended`, `beta5-clip-restarted`). Ранее: VOD Home/resume и history через OTA 2→4. | Новый release-сценарий network/error→Home→foreground и VOD history через OTA 6→7 ещё не подтверждены. Завершение clip не заменяет полный набор VOD/lifecycle сценариев. |
-| §4/6: чтение чата | Guest IRC WebSocket; CRLF parser, PING/PONG, reconnect/backoff, generation против старых callbacks, bounded timeline 150×500. Moderation использует user-id/login, display-name остаётся представлением. USERNOTICE сохраняет реальный текст; terminal NOTICE и quiet/reconnect имеют явный статус. | JVM: parser, escaped values, moderation, dedup/bounds, USERNOTICE, terminal/quiet/reconnect presentation. Native release: реальные сообщения в live, socket включается для foreground live и сохранённого либо preview-enabled чата. | Полный websocket lifecycle не покрыт parser-тестами. Продолжительная busy-chat/reconnect нагрузка и сеть→восстановление на beta.5 остаются pending. Guest IRC — эмпирический контракт, а не обещание официального anonymous API. |
-| §4: настройки, preview, сохранение | Overlay/theater, положение/размер/фон/часы/анимации; draft Save/Cancel. Preview включения чата управляет реальным соединением; при закрытии/отмене возвращается сохранённое состояние. SharedPreferences хранит настройки и историю. | Android debug: Save/Cancel/reopen и вложенные обновления без потери draft. Native release beta.5: saved off→draft on с настоящими сообщениями; Cancel оставляет off; Save сохраняет on. `beta5-chat-preview-setup/on/cancel/save.log` и соответствующие XML/PNG. | Шесть debug тестов предшествуют финальному preview fix; его доказательство — отдельные native действия. Финальный визуальный дизайн и exhaustive combinations не заявляются. |
-| §6: разделение владельцев и ресурсы | Twitch integration, OAuth, playback, chat и updater имеют отдельные владельцы. Один player на просмотр; background останавливает decoder/loading/chat; release закрывает scope, socket/client/media session. HTTP cancel/evict вынесены с main. История не хранит URL. | Read-only review auth/update/provider/storage и независимый playback review; JVM stale/cancel/bounds policies. Ранее исправленный TLS main-thread crash повторно проверен. | Только код и короткие проверки не доказывают отсутствие накопления ресурсов. **22 play/return цикла с памятью и 30-минутный live soak ещё pending.** |
-| §7: пульт и возврат фокуса | D-pad/OK/Back; long OK открывает канал; возврат к карточке/строке; настройка качества одним подтверждением; вложенные панели закрываются последовательно. | 6 Android debug tests: разделы/настройки/Back; preview Save/Cancel; long OK/channel/back; nested update/draft; один Back из player settings; authenticated pagination/restore. Native beta.5 chat/clip/quality выполнялись D-pad. | Последний полный instrumentation прогон не относится к двум последним фиксам. Физический пульт/TV, все сценарии исчезновения карточек и все комбинации панелей не проверены. |
-| §7/12: измерения | Числовые resolver→prepare→first-frame timestamps; rebuffer count/duration отдельно от startup, seek, foreground, recovery и quality switch; decoder counters. HLS и MP4 ручные switches помечены отдельно. URL, токены, имена каналов и тексты чата в эти метрики не включены. | JVM fake-clock tests; read-only review фактических callbacks и HLS marker. Старые Perfetto/input/memory/decoder измерения подробно привязаны к alpha.2/beta.2 в [PERFORMANCE.md](PERFORMANCE.md). | Новые метрики и старые цифры **не означают нового performance benchmark beta.5**. Pending: sample из 22 циклов/30 минут, фактические rebuffer/decoder/memory totals. Нет физического ARM/HW decode, display FPS или input-to-photon результата. |
-| §11: проверенные обновления и сохранение данных | Отдельный GitHub repository/channel; package/version/minSdk/certificate/SHA проверки, bounded download, cancel/retry, Android permission и installer. FileProvider private, выдаёт read-only URI только из cache/updates. Vault хранится в noBackupFilesDir, backup отключён. | JVM update policy и operation gate. Native предыдущих выпусков: check/download/cancel/retry/permission/install, OTA 2→4→5→6; beta.4 public/feed/installed hashes совпали. Code7 собран R8 успешно; read-only review новых P1/P2 update/storage не выявил. | **OTA 6→7, сохранение settings+VOD history, public APK/feed/hash и системный OPEN beta.5 pending.** Подготовленный candidate не объявляется опубликованным. |
-
-## Что изменено после beta.4
-
-1. Устранена часовая задержка восстановления DCF-сессии, сохранённой после запуска validator: состояние проверяется каждую минуту без ежеминутного сетевого запроса для здорового аккаунта. Учтена отмена без поля error.
-2. Исправлены stale playback error при foreground, Pause во время buffering и очистка позиции после завершения записи. Policies подключены в настоящие `PlaybackSession`/`Viewing`, а не только в тесты.
-3. Все доступные MP4 качества клипа проходят через resolver и меню; смена источника сохраняет позицию и намерение паузы.
-4. Исправлены chat moderation identity, USERNOTICE/terminal/quiet/reconnect presentation; выключенный чат освобождает соединение, а draft preview может временно включить настоящий чат.
-5. Авторизованный header канала использует Helix; неудача header не блокирует доступную выдачу записей/клипов. Обновление первой страницы доступно до достижения конца каталога.
-6. Добавлены раздельные numeric-only playback metrics. Независимый review обнаружил отсутствие quality marker в HLS-ветке; marker добавлен после проверки выбранной дорожки и до изменения параметров плеера.
-
-## История regression-прогонов
-
-| Свидетельство | Что оно доказывает |
-|---|---|
-| `evidence/backend-final-auth-red.log` | Ранняя ошибка компиляции test suite. **Не считается runnable RED** и не доказывает обнаружение пользовательского дефекта. |
-| `evidence/backend-final-red.log` | Наблюдённый runnable RED: 98 tests / 12 failures, включая позднее сохранение DCF-сессии и 11 chat regressions. |
-| `evidence/backend-final-data-red.log` | Наблюдённый data RED: 107 tests / 6 failures — 4 clip source и 2 Helix header regressions. |
-| `evidence/backend-final-green.log` | Успешная промежуточная интеграционная сборка; не подменяет последующий candidate-прогон. |
-| `evidence/backend-final-instrumentation.log` | 6 Android debug PASS / 81.817 с до финальных preview/HLS marker исправлений. |
-| `evidence/backend-final-candidate.log` + XML unit results | После финальных исправлений: 107 JVM PASS, debug и minified release сборки успешны. |
-
-JVM фикстуры не выполняют действий с реальным аккаунтом и не заменяют Twitch/Android/OTA проверки. Отдельного сквозного теста чтения/записи AndroidKeyStore, реального rotate/revoke и полного WebSocket reconnect во всём production client пока нет.
-
-## Незавершённые проверки текущего кандидата
-
-Эта таблица предназначена для точного дополнения root по завершении сценариев. До появления результата и его свидетельства статус остаётся **pending**.
-
-| Проверка exact code7 release | Статус на этом срезе | Необходимое свидетельство |
+| Область | Что закрыто | Доказательства и границы |
 |---|---|---|
-| MP4 quality settle→resume после сохранения 0:13/paused | **Pending завершения root**; выбор 720p60 и сохранение paused position уже подтверждены | Завершённое состояние загрузки и возобновившееся движение позиции/декодирование. |
-| 22 live open/return цикла | **Pending** | Число законченных циклов, timestamps, память после возврата, отсутствие crash/ANR, условия эмулятора. |
-| Live минимум 30 минут с чатом и панелями | **Pending** | Фактические начало/конец и длительность, playback/decoder/rebuffer counters, действия с панелями, ошибки и ограничения. |
-| Потеря и возвращение сети; chat reconnect; playback retry | **Pending на beta.5** | D-pad сценарий и отдельные наблюдения video/chat; прежние beta.4/ранние прогоны не переименовывать. |
-| Release pause/foreground и VOD seek/resume | **Pending нового расширенного прогона** | Доказательства сохранения позиции/паузы, отсутствия stale error после восстановления; реальные контент/устройство. |
-| OTA beta.4/code6 → beta.5/code7 | **Pending** | In-app check/download/system install/OPEN, сохранённые settings и VOD history, установленный APK hash. |
-| Публикация beta.5 и внешний update feed | **Pending** | Тег/source commit, публичные APK/update.json/SHA256SUMS, обычный URL feed и совпадение с exact candidate. |
+| Каталог | Helix-пагинация после входа, дедупликация, отмена устаревших запросов, retry без потери карточек, LRU; официальный header канала; явное обновление первой страницы | JVM parser/page/cancel/retry/bounds и header; Android D-pad за пределы30 эфиров и возврат. Native offline-page/retry подтверждён beta.4. Guest ограничен первой страницей Twitch. |
+| Авторизация | DCF, отслеживаемые каналы; минутная переоценка непроверенной сессии после late save/cancel; hourly validate здоровой сессии; bounded refresh/save и защита от logout race | JVM production helpers и HTTP-policy fixtures. Реальный вход/follows подтверждены ранее; сохранённый аккаунт виден в текущем release. Настоящие expiry/refresh/revoke не проверялись, нового входа не требовали. |
+| Плеер | Live/VOD/clip, корректный pause intent, очистка stale error после foreground, bounded загрузка, release ресурсов, завершённая запись не возобновляется с конца | JVM policies; два Android-теста same-media retry, завершившегося после ON_STOP: играющее видео возобновляется, пауза сохраняется. Native текущего APK перечислены ниже. |
+| Качество | Все доступные MP4 варианты; сохранение позиции и паузы. HLS choice восстанавливается по height/fps, clip — по стабильному ID с новым URL. Auto/new media/unavailable variant сбрасывают выбор | 14 новых JVM regressions. Пустые tracks сохраняют выбор и меню восстановления; старый TrackGroup не переносится между manifest. Pending manual не отмечается как Auto. |
+| Восстановление | В ошибке доступно «Качество», если варианты уже известны; выбор подготавливает источник заново с live edge/VOD position и прежним pause intent. Retry заново получает источник и сохраняет ручное качество | Независимое ревью интеграции и focus/back. Автоматических бесконечных попыток или скрытого снижения качества нет. Реальные network/error/quality проверки текущего APK ниже. |
+| Чат | Login/user ID отдельно от display name, корректный CLEARCHAT, USERNOTICE и terminal NOTICE, дедупликация/лимиты, честные quiet/connecting/error статусы | 13 JVM chat regressions. Соединение только для foreground live и включённого/предпросматриваемого чата; история150 сообщений, UI100. Полный WebSocket lifecycle не подменяется parser-тестами. |
+| Настройки | Overlay/theater, размер/фон/положение/часы/анимации; draft preview, Save/Cancel и возврат | Текущие Android D-pad tests; реальные draft on/off и чат проверены на предварительном кандидате. Визуальное оформление не объявляется окончательным. |
+| Хранение | Settings/history в SharedPreferences; история100 позиций без URL. OAuth в AtomicFile+Android Keystore AES-GCM; backup отключён | Review и JVM history/auth policies. Сквозного AndroidKeyStore rotate/revoke теста нет. Settings/history через OTA текущего APK пока ожидают проверки. |
+| Обновления | Отдельный GitHub-канал; SHA/package/version/API/certificate, cancel/retry, private FileProvider и системный installer | JVM update policy; предыдущая цепочка OTA2→4→5→6. Текущий переход6→7, public/feed/installed hashes отмечаются после фактического завершения. |
+| Метрики | Request/resolve/prepare→first frame; rebuffer отдельно от startup/seek/foreground/recovery/quality; числовые decoder counters | JVM fake-clock tests, реальные предыдущие и текущие выборки в [PERFORMANCE.md](PERFORMANCE.md). Это не физический input-to-photon или аппаратный TV benchmark. |
 
-## Известные внешние ограничения и следующий этап
+## Native-проверка текущего APK
 
-- Physical ARM TV, аппаратное декодирование, фиксированное 1080p60, реальные OEM/Android-варианты и физический input-to-photon не проверены. Эмулятор API30/x86 с software GPU не эквивалентен телевизору.
-- Гостевая пагинация ограничена ответом Twitch `IntegrityCheckFailed`; обход не выполняется. Официальный Helix доступен после входа. Клипы имеют фиксируемое недельное окно и ограничение выдачи сервиса; это не полный архив Twitch.
-- Реальные OAuth expiry/refresh/revoke и права закрытого контента остаются отдельными непроверенными условиями. Нельзя объявить их подтверждёнными по успешному входу или helper-тестам.
-- Предпросмотр карточек, кадры при перемотке, уведомления, дополнительные/анимированные эмоты отложены согласно [SCOPE.md](SCOPE.md). Отправка чата и мультипросмотр не обязательны для первого выпуска.
-- Все обязательные перечисленные функции имеют реализацию. **Завершённость текущей внутренней стабилизации зависит от pending проверок и доставки выше**; финальный дизайн по-прежнему отдельный следующий этап. Старые отчёты сохраняют свои версии и условия измерений.
+| Проверка | Результат |
+|---|---|
+| Реальная ошибка сети → выбор360p → видео; fresh-source Retry сохраняет360p | **PASS** на точном release; `beta5-final-quality-recovery.log`, XML/PNG `beta5-final-error-quality360-recovered`, `beta5-final-retry360-selected`. После ON_STOP чат очистился, после подключения снова видны настоящие сообщения. |
+| 20+ открытий/возвратов с памятью | Ожидает нового прогона |
+| Длительный480p live с чатом/панелями | Ожидает нового прогона |
+| MP4 quality/position/completion на текущем кандидате | Ожидает целевого повторения |
+| Публикация, feed и OTA6→7 с settings/VOD history | Pending |
+
+## Предварительный кандидат и найденные ограничения
+
+Первый candidate code7 имел SHA `68a655937e417d763c3b18c57ddb9a4d1baaf30628217160804fafffe01aa0fb`, 2 733 965 байт. Его результаты **не переименованы в проверки текущего APK**:
+
+- 107 JVM PASS; шесть Android PASS/81.817с до двух промежуточных исправлений. Native: chat saved-off→draft-on с настоящими сообщениями, Cancel→off, Save→on; clip1080p60→720p60 сохранил0:13/paused, Resume дал0:14; завершённый30s clip заново открылся0:00; real2001→Home→network restore→foreground очистил ошибку.
+- 23 разных канала/24 попытки:22 первых старта, один decoder4003 до первого кадра и успешный ручнойRetry; все возвраты сохранили карточку. Request→frame median2793ms/p954194ms/max8559ms среди22 успешных первых стартов; отдельныйRetry2172ms. PSS после возврата73 200…94 088KB. Подробности в PERFORMANCE.
+- Первый720p60 soak прервался через319.161s renderer:19075 rendered/0 dropped/236 skipped, rebuffer1328ms. Отдельно упал UiAutomator shell с alreadyregistered; приложение и codec services оставались живы.
+- Второй720p60 soak **без периодического UiAutomator** также прервался через1425.246s:83631 rendered/0 dropped/220 skipped, rebuffer1190ms. Это исключает утверждение, что decoder failure был только сбоем наблюдения.
+- В обоих случаях software `OMX.google.h264.decoder`/SoftAVCDec сообщил4003 и `Fatal Error:0xffffffff`. Конкретная причина не установлена; ни OOM, ни постоянная нехватка CPU не доказаны. Последующие доработки улучшают доступное восстановление, **не объявляют системный decoder исправленным**.
+- Диагностический конфликт исправлен межпроцессной блокировкой dump на каждый serial. Два одновременных запроса на5562 завершились успешно последовательно:1.72/3.33с (`beta5-qa-lock-test.json`).
+
+Значение4003 — runtime decode failure, а не init failure. Поэтому `setEnableDecoderFallback` не добавлялся без доказательств: [PlaybackException](https://developer.android.com/reference/androidx/media3/common/PlaybackException), [DefaultRenderersFactory](https://developer.android.com/reference/androidx/media3/exoplayer/DefaultRenderersFactory), [AOSP SoftAVCDec](https://android.googlesource.com/platform/frameworks/av/+/e3c46b0a49d045fa38d35e5cf7ad4becaacbbed6/media/libstagefright/codecs/avcdec/SoftAVCDec.cpp).
+
+## Regression и независимое ревью
+
+Наблюдены runnable RED98/12 и107/6 для auth/chat/data; новые quality tests10/10, затем pending-choice14/4. Android lifecycle RED2/1 воспроизвёл потерю resume intent после фонового завершения Retry (`beta5-lifecycle-red.log`, expectedtrue/actualfalse). После исправления полный121 JVM и8 Android прошли. Ошибка ранней компиляции не выдана за runnable RED.
+
+Независимые review закрыли chat preview connection demand, HLS quality metric marker, pending manual checkmark и background retry intent. Локальные builds/logs не заменяют public APK и настоящий OTA.
+
+## Границы и следующий этап
+
+Проверено на Android TV API30/x86/SwiftShader: primary4vCPU/2GB и secondary2vCPU/1.5GB на одном Windows host. Физический ARM TV, аппаратные декодеры, длительное1080p60 и OEM-варианты ещё не проверены. Реальные expiry/revoke/закрытый контент не подтверждены. Guest GQL/Usher недокументирован и может меняться; guest pagination блокируется IntegrityCheckFailed, после входа используется Helix. Дополнительные эмоты, отправка чата, previews и уведомления имеют границы из [SCOPE.md](SCOPE.md).
+
+Следующий продуктовый этап — дизайн после завершения доставки внутренней части.

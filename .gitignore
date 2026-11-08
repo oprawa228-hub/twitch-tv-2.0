@@ -12,10 +12,4 @@ signing.properties
 dist/
 *.hprof
 **/__pycache__/
-evidence/**/*.log
-evidence/**/*.mp4
-evidence/**/*.png
-evidence/android/
-evidence/*.perfetto-trace
-evidence/*.json
-evidence/*.sql
+evidence/

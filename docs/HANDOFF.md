@@ -1,12 +1,18 @@
 # Передача результата Twitch 2.0
 
-## Текущий этап beta.4
+## Текущий этап beta.5
+
+Текущий signed/minified candidate code7: SHA-256 `cb26d9eb713e246725ca70d9e0ebd050a0a3fb30a948a69ae80e45434bd21f10`, 2 733 968 байт. **121 JVM PASS, 8 Android PASS/84.861с** после последних исправлений. Реальный network error→Quality360→video и fresh-source Retry с сохранением360 подтверждены на точном release. Идут новые циклы/длительный480p и последующая доставка; beta.4 пока остаётся опубликованной версией.
+
+Предварительный candidate68a655… дважды получил software decoder4003 на720p60 (319.161s и1425.246s). Его23 открытия/возврата и другие native проверки не выдаются за результаты текущего APK. В текущем добавлены выбор качества из ошибки, сохранение ручного выбора при Retry и play/pause intent при фоновом завершении запроса. Системный decoder не объявляется исправленным. Полная матрица: [BACKEND_FINAL.md](BACKEND_FINAL.md). Дизайн отложен по просьбе пользователя.
+
+## Доставленная beta.4
 
 По указанию пользователя доработана внутренняя логика; дизайн отложен. Пагинация Helix после входа, сохранение карточек/курсорный retry, LRU и восстановление авторизации после offline startup реализованы. **Beta.4/code6 опубликован, канал обновлён, OTA5→6 проверен.** Все проверки и ограничения описаны в [BACKEND_BETA4.md](BACKEND_BETA4.md), единый план — [PLAN.md](PLAN.md). Исходники тега: `b5bc36641b7b4ed2218721e9c06ee562dfd91a8b`. Ниже — история доставленной beta.3; её ограничение первой страницей больше не относится к авторизованным каталогам beta.4.
 
 2026-11-08: beta доставлен. Финальный [v0.1.0-beta.3/code5](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/tag/v0.1.0-beta.3) опубликован; реальные OTA alpha.2/code2 → beta.2/code4 → beta.3/code5 выполнены через приложение и системный installer. [Результаты](TEST_RESULTS.md), [измерения](PERFORMANCE.md), [выполненный план](PLAN.md), [публикация](RELEASING.md).
 
-## Финальный артефакт
+## Исторический артефакт beta.3
 
 [APK](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.3/Twitch20-0.1.0-beta.3.apk), 2 717 565 байт, SHA-256 `9b5fc5fc7b836a60b1bb0971cedd0cf3e5e491d298138a72dfb8e3ee8c1cf844`. Public/downloaded/installed APK одинаковы; versionCode5/min23/target36, installer `com.google.android.packageinstaller`. Apksigner v1/v2 PASS, certificate SHA-256 `f81f51fd47d318aaf79f1fe3c81159fe6eca405f881f4f0b19d097d1c4b006f7`.
 
@@ -35,4 +41,4 @@ Source release-tag commit: [13545b8c14942af0529be204d85c91b24a9f3fee](https://gi
 
 Это завершённая доставка beta, не обещание проверки всех устройств/условий. Не проверены физический ARM TV/аппаратный decoder/1080p60, многочасовые нагрузки,20+ смен каналов, длительный busy chat, token expiry/refresh/revoke. Представительные VOD seek/Home/resume/quality/search/theater выполнены; расширение комбинаций — последующее покрытие, не незавершённая реализация основных сценариев.
 
-Общий live каталог ограничен30, категории40, VOD/clips30; бесконечной пагинации нет. Гостевой video использует недокументированный Twitch путь; subscriber-only/Turbo не гарантируются. Public GitHub prereleases не обязательно появляются в `/releases/latest`; updater использует подходящий feed. Для будущих релизов сохранять подпись, повышать versionCode и повторять exact-artifact OTA проверку по RELEASING.md.
+Историческое ограничение beta.3: live30/категории40/VOD-clips30. В beta.4+ авторизованные каталоги имеют курсорную пагинацию; guest остаётся ограниченным первой страницей. Гостевой video использует недокументированный Twitch путь; subscriber-only/Turbo не гарантируются. Public GitHub prereleases не обязательно появляются в `/releases/latest`; updater использует подходящий feed. Для будущих релизов сохранять подпись, повышать versionCode и повторять exact-artifact OTA проверку по RELEASING.md.
