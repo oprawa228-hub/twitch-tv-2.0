@@ -48,6 +48,23 @@ class HelixCatalogRepository(
             )
         }
 
+    suspend fun channel(login: String): Channel {
+        val users = get("users", mapOf("login" to login)).optJSONArray("data")
+            ?: throw TwitchException(TwitchError.SERVICE)
+        val user = users.optJSONObject(0) ?: throw TwitchException(TwitchError.UNAVAILABLE)
+        val id = HelixCatalogJson.required(user, "id")
+        val streams = get("streams", mapOf("user_id" to id)).optJSONArray("data")
+            ?: throw TwitchException(TwitchError.SERVICE)
+        val live = streams.optJSONObject(0)
+        return Channel(id, TwitchJson.text(user, "login").ifBlank { login },
+            TwitchJson.text(user, "display_name").ifBlank { login },
+            live?.let { TwitchJson.text(it, "title") }.orEmpty(),
+            live?.let { TwitchJson.text(it, "game_name") }.orEmpty(),
+            if (live == null) TwitchJson.text(user, "profile_image_url")
+                else thumbnail(TwitchJson.text(live, "thumbnail_url"), 640, 360),
+            live?.let { HelixCatalogJson.count(it, "viewer_count") } ?: 0, live != null)
+    }
+
     suspend fun videosPage(login: String, after: String? = null): CatalogPage<Video> {
         val parameters = pageParameters(30, after).apply {
             put("user_id", userId(login))

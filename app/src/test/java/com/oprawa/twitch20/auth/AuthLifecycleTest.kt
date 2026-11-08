@@ -13,6 +13,60 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AuthLifecycleTest {
+    @Test fun cancellingLoginValidationStillRecoversAlreadySavedCredentials() = runTest {
+        var savedSession = false
+        var state = AuthState()
+        val validator = launch {
+            runAuthValidationLoop(
+                validate = { if (savedSession) state = AuthState(loggedIn = true, displayName = "viewer") },
+                retryNeeded = { needsAuthValidationRetry(savedSession, state) },
+            )
+        }
+        runCurrent()
+        val login = launch {
+            savedSession = true // DCF exchange completed and persisted before final validation.
+            awaitCancellation() // Leaving the account screen cancels this validation without an error.
+        }
+        runCurrent()
+        login.cancelAndJoin()
+        assertFalse(state.loggedIn)
+        assertNull(state.error)
+        advanceTimeBy(60_000)
+        runCurrent()
+        validator.cancelAndJoin()
+        assertTrue("Saved credentials must be validated even when cancellation produced no error", state.loggedIn)
+    }
+
+    @Test fun aNewSessionRetriesAfterLoginValidationFailsWhileTheValidatorIsIdle() = runTest {
+        var savedSession = false
+        var retryNeeded = false
+        var loggedIn = false
+        var attempts = 0
+        val validator = launch {
+            runAuthValidationLoop(
+                validate = {
+                    attempts++
+                    if (savedSession) { loggedIn = true; retryNeeded = false }
+                },
+                retryNeeded = { savedSession && retryNeeded },
+            )
+        }
+        runCurrent() // Startup has no saved account; the validator enters its idle interval.
+        advanceTimeBy(5_000)
+        // The device-code exchange saves a session, but its immediate validate fails offline.
+        // These are the same signals written by awaitLogin's save and exception handler.
+        savedSession = true
+        retryNeeded = true
+        // The network is available for the next validation; no new login is requested.
+        advanceTimeBy(60_000)
+        runCurrent()
+        val recoveredWithoutNewLogin = loggedIn
+        val attemptsAfterRecovery = attempts
+        validator.cancelAndJoin()
+        assertTrue("A session saved after startup must recover within a minute", recoveredWithoutNewLogin)
+        assertEquals(2, attemptsAfterRecovery)
+    }
+
     @Test fun logoutPreventsALateRotationFromRestoringCredentials() = runTest {
         val generation = AuthGeneration()
         val epoch = generation.get()

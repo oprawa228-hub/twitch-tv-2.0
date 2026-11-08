@@ -18,6 +18,7 @@ import androidx.media3.exoplayer.DecoderCounters
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
+import com.oprawa.twitch20.data.VideoVariant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -40,16 +41,20 @@ data class PlaybackState(
     val status: PlaybackStatus = PlaybackStatus.Idle,
     val isLive: Boolean = false,
     val isPlaying: Boolean = false,
+    val playWhenReady: Boolean = false,
     val positionMs: Long = 0,
     val durationMs: Long = 0,
     val bufferedPositionMs: Long = 0,
     val error: String? = null,
     val qualityOptions: List<QualityOption> = emptyList(),
+    val canAutoSelectQuality: Boolean = true,
     val selectedQualityId: String? = null,
     val activeQuality: String = "",
     val firstFrameMs: Long? = null,
     val droppedFrames: Int = 0,
-)
+) {
+    val showPauseAction: Boolean get() = playWhenReady && status != PlaybackStatus.Ended
+}
 
 /** One owner per viewing session. All public operations run on the Android main thread. */
 @OptIn(UnstableApi::class)
@@ -65,6 +70,8 @@ class PlaybackSession(context: Context) {
     private var startedAtMs = 0L
     private var recoveredLiveWindow = false
     private var bufferingStartedAtMs = 0L
+    private val metrics = PlaybackMetrics()
+    private var progressiveSources: List<VideoVariant> = emptyList()
 
     private val http = OkHttpClient.Builder().build()
     val player: ExoPlayer = ExoPlayer.Builder(context.applicationContext)
@@ -82,10 +89,18 @@ class PlaybackSession(context: Context) {
 
         override fun onTracksChanged(tracks: Tracks) { publishTracks(tracks) }
 
+        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo, reason: Int) {
+            if (reason == Player.DISCONTINUITY_REASON_SEEK)
+                metrics.markPreparation(BufferingReason.SEEK, SystemClock.elapsedRealtime())
+        }
+
         override fun onPlayerError(error: PlaybackException) {
+            metrics.finish(SystemClock.elapsedRealtime())
             if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW &&
                 mutableState.value.isLive && !recoveredLiveWindow) {
                 recoveredLiveWindow = true
+                metrics.markPreparation(BufferingReason.RECOVERY, SystemClock.elapsedRealtime())
                 player.seekToDefaultPosition()
                 player.prepare()
                 player.play()
@@ -129,10 +144,15 @@ class PlaybackSession(context: Context) {
                 if (eventTime.windowIndex !in 0 until eventTime.timeline.windowCount) return
                 val renderedId = eventTime.timeline.getWindow(eventTime.windowIndex, Timeline.Window()).mediaItem.mediaId
                 if (renderedId == mutableState.value.mediaId && mutableState.value.firstFrameMs == null) {
-                    val elapsed = SystemClock.elapsedRealtime() - startedAtMs
+                    val now = SystemClock.elapsedRealtime()
+                    val elapsed = now - startedAtMs
+                    metrics.firstFrame(now)
                     mutableState.value = mutableState.value.copy(firstFrameMs = elapsed)
                     // No URI/token is logged. This excludes source-resolution latency.
                     Log.i("TwitchPlayback", "first_frame_ms=$elapsed")
+                    val sample = metrics.snapshot(now)
+                    Log.i("TwitchPlayback", "request_first_frame_ms=${sample.requestFirstFrameMs}" +
+                        " source_resolve_ms=${sample.sourceResolveMs} attempt=${sample.attemptId}")
                 }
             }
 
@@ -168,15 +188,24 @@ class PlaybackSession(context: Context) {
         startProgressUpdates()
     }
 
-    fun play(url: String, mediaId: String, isLive: Boolean, startPositionMs: Long = 0) {
+    fun play(url: String, mediaId: String, isLive: Boolean, startPositionMs: Long = 0,
+        requestStartedAtMs: Long = SystemClock.elapsedRealtime(),
+        progressiveVariants: List<VideoVariant> = emptyList()) {
         check(!released) { "Playback session has been released" }
         backgrounded = false
         startProgressUpdates()
         recoveredLiveWindow = false
         bufferingStartedAtMs = 0L
         startedAtMs = SystemClock.elapsedRealtime()
+        logMetrics(reason = 1, nowMs = startedAtMs)
+        metrics.beginAttempt(requestStartedAtMs, startedAtMs)
+        progressiveSources = progressiveVariants.toList()
         mutableState.value = PlaybackState(mediaId = mediaId, isLive = isLive,
-            status = PlaybackStatus.Buffering)
+            status = PlaybackStatus.Buffering, playWhenReady = true,
+            qualityOptions = progressiveSources.map { QualityOption(it.id, it.label) },
+            selectedQualityId = progressiveSources.firstOrNull()?.id,
+            activeQuality = progressiveSources.firstOrNull()?.label.orEmpty(),
+            canAutoSelectQuality = progressiveSources.isEmpty())
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_VIDEO).build()
         val item = MediaItem.Builder().setUri(url).setMediaId(mediaId).apply {
@@ -204,6 +233,7 @@ class PlaybackSession(context: Context) {
         mutableState.value = mutableState.value.copy(error = null, status = PlaybackStatus.Buffering)
         recoveredLiveWindow = false
         bufferingStartedAtMs = 0L
+        metrics.markPreparation(BufferingReason.RECOVERY, SystemClock.elapsedRealtime())
         if (mutableState.value.isLive) player.seekToDefaultPosition()
         player.prepare()
         player.play()
@@ -223,6 +253,20 @@ class PlaybackSession(context: Context) {
 
     fun selectQuality(id: String?) {
         if (released) return
+        if (progressiveSources.isNotEmpty()) {
+            val source = progressiveSources.firstOrNull { it.id == id } ?: return
+            if (source.id == mutableState.value.selectedQualityId) return
+            val next = PlaybackPolicy.qualitySwitchState(mutableState.value.copy(
+                positionMs = player.currentPosition.coerceAtLeast(0),
+                playWhenReady = player.playWhenReady), source.id, source.label)
+            metrics.markPreparation(BufferingReason.QUALITY_SWITCH, SystemClock.elapsedRealtime())
+            bufferingStartedAtMs = 0L
+            mutableState.value = next
+            player.setMediaItem(MediaItem.Builder().setUri(source.url).setMediaId(next.mediaId).build(), next.positionMs)
+            player.prepare()
+            player.playWhenReady = next.playWhenReady
+            return
+        }
         val builder = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_VIDEO)
         if (id != null) {
             val parts = id.split(':').mapNotNull(String::toIntOrNull)
@@ -232,6 +276,7 @@ class PlaybackSession(context: Context) {
                 !group.isTrackSupported(parts[1])) return
             builder.setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, parts[1]))
         }
+        metrics.markPreparation(BufferingReason.QUALITY_SWITCH, SystemClock.elapsedRealtime())
         player.trackSelectionParameters = builder.build()
         mutableState.value = mutableState.value.copy(selectedQualityId = id)
     }
@@ -239,6 +284,7 @@ class PlaybackSession(context: Context) {
     fun onBackground() {
         if (released || backgrounded) return
         backgrounded = true
+        metrics.finish(SystemClock.elapsedRealtime())
         progressJob?.cancel()
         resumeAfterBackground = player.playWhenReady
         savedPositionMs = player.currentPosition
@@ -251,6 +297,9 @@ class PlaybackSession(context: Context) {
         backgrounded = false
         startProgressUpdates()
         if (player.currentMediaItem == null) return
+        mutableState.value = PlaybackPolicy.foregroundState(mutableState.value, resumeAfterBackground)
+        bufferingStartedAtMs = 0L
+        metrics.markPreparation(BufferingReason.FOREGROUND, SystemClock.elapsedRealtime())
         if (mutableState.value.isLive) player.seekToDefaultPosition() else player.seekTo(savedPositionMs)
         player.prepare()
         player.playWhenReady = resumeAfterBackground
@@ -259,6 +308,8 @@ class PlaybackSession(context: Context) {
     fun release() {
         if (released) return
         released = true
+        metrics.finish(SystemClock.elapsedRealtime())
+        logMetrics(reason = 2, nowMs = SystemClock.elapsedRealtime())
         scope.cancel()
         mediaSession.release()
         player.removeListener(listener)
@@ -288,6 +339,7 @@ class PlaybackSession(context: Context) {
                 player.stop()
                 mutableState.value = mutableState.value.copy(status = PlaybackStatus.Error,
                     isPlaying = false, error = "Видео не загружается. Проверьте сеть и повторите.")
+                metrics.finish(now)
                 return
             }
         } else bufferingStartedAtMs = 0L
@@ -298,7 +350,9 @@ class PlaybackSession(context: Context) {
             player.playbackState == Player.STATE_ENDED -> PlaybackStatus.Ended
             else -> PlaybackStatus.Idle
         }
+        metrics.onState(status, player.playWhenReady, !backgrounded, SystemClock.elapsedRealtime())
         mutableState.value = previous.copy(status = status, isPlaying = player.isPlaying,
+            playWhenReady = player.playWhenReady,
             positionMs = player.currentPosition.coerceAtLeast(0),
             durationMs = player.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0,
             bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0))
@@ -310,6 +364,7 @@ class PlaybackSession(context: Context) {
     }
 
     private fun publishTracks(tracks: Tracks) {
+        if (progressiveSources.isNotEmpty()) return
         val qualities = mutableListOf<QualityOption>()
         var active = ""
         tracks.groups.forEachIndexed { groupIndex, group ->
@@ -325,5 +380,20 @@ class PlaybackSession(context: Context) {
             }
         }
         mutableState.value = mutableState.value.copy(qualityOptions = qualities, activeQuality = active)
+    }
+
+    private fun logMetrics(reason: Int, nowMs: Long) {
+        val sample = metrics.snapshot(nowMs)
+        if (sample.attemptId == 0) return
+        Log.i("TwitchPlayback", "playback_summary reason=$reason attempt=${sample.attemptId}" +
+            " source_resolve_ms=${sample.sourceResolveMs}" +
+            " request_first_frame_ms=${sample.requestFirstFrameMs ?: -1}" +
+            " prepare_first_frame_ms=${sample.prepareFirstFrameMs ?: -1}" +
+            " rebuffer_count=${sample.rebufferCount} rebuffer_ms=${sample.rebufferDurationMs}" +
+            " startup_buffer_ms=${sample.bufferingMs.getValue(BufferingReason.STARTUP)}" +
+            " seek_buffer_ms=${sample.bufferingMs.getValue(BufferingReason.SEEK)}" +
+            " foreground_buffer_ms=${sample.bufferingMs.getValue(BufferingReason.FOREGROUND)}" +
+            " recovery_buffer_ms=${sample.bufferingMs.getValue(BufferingReason.RECOVERY)}" +
+            " quality_buffer_ms=${sample.bufferingMs.getValue(BufferingReason.QUALITY_SWITCH)}")
     }
 }

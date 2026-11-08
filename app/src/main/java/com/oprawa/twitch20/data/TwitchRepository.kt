@@ -100,20 +100,15 @@ class TwitchRepository(
         return masterUrl(listOf("vod", "$id.m3u8"), TwitchJson.playbackToken(data, "videoPlaybackAccessToken"))
     }
 
-    suspend fun resolveClip(slug: String): String {
+    suspend fun resolveClip(slug: String): String = resolveClipVariants(slug).first().url
+
+    suspend fun resolveClipVariants(slug: String): List<VideoVariant> {
         val data = gql(
             "query(\$slug:ID!) { clip(slug:\$slug) { videoQualities { quality frameRate sourceURL } playbackAccessToken(params:{platform:\"web\",playerType:\"site\"}) { value signature } } }",
             JSONObject().put("slug", slug),
         )
         val clip = data.optJSONObject("clip") ?: throw TwitchException(TwitchError.UNAVAILABLE)
-        val token = TwitchJson.playbackToken(clip, "playbackAccessToken")
-        val qualities = clip.optJSONArray("videoQualities") ?: throw TwitchException(TwitchError.UNAVAILABLE)
-        val quality = (0 until qualities.length()).map { qualities.getJSONObject(it) }
-            .filter { TwitchJson.text(it, "sourceURL").startsWith("https://") }
-            .maxByOrNull { TwitchJson.text(it, "quality").toIntOrNull() ?: 0 }
-            ?: throw TwitchException(TwitchError.UNAVAILABLE)
-        return TwitchJson.required(quality, "sourceURL").toHttpUrl().newBuilder()
-            .setQueryParameter("sig", token.signature).setQueryParameter("token", token.value).build().toString()
+        return ClipSources.parse(clip)
     }
 
     private fun masterUrl(path: List<String>, token: PlaybackToken): String {

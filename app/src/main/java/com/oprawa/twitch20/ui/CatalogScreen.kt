@@ -137,13 +137,14 @@ fun CatalogScreen(
     }
 
     Column(Modifier.fillMaxSize().background(TvColors.Background).padding(horizontal = 24.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 18.dp),
+        Row(Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 18.dp, end = 84.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically) {
             Text(title, fontSize = 25.sp, fontWeight = FontWeight.Bold,
                 color = TvColors.Text, modifier = Modifier.weight(1f), maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
             if (busy) Text("Обновление…", fontSize = 12.sp, color = TvColors.Muted)
+            else if (entries.isNotEmpty()) TvAction("Обновить", onRefresh)
         }
         if (error != null && entries.isNotEmpty()) {
             Row(Modifier.fillMaxWidth().padding(bottom = 12.dp),

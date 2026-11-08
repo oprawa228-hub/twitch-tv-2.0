@@ -68,7 +68,7 @@ class TwitchAuth(context: Context, private val clientId: String) {
 
     init {
         scope.launch {
-            runAuthValidationLoop(::validateSession, { load() != null && mutableState.value.error != null })
+            runAuthValidationLoop(::validateSession, { needsAuthValidationRetry(load() != null, mutableState.value) })
         }
     }
 

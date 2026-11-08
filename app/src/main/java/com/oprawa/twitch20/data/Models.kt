@@ -13,6 +13,11 @@ data class Channel(
 
 data class Category(val id: String, val name: String, val imageUrl: String)
 
+/** Resolved progressive source; URLs may contain short-lived access credentials. */
+class VideoVariant(val id: String, val label: String, val url: String) {
+    override fun toString(): String = "VideoVariant(id=$id, label=$label, url=redacted)"
+}
+
 data class Video(
     val id: String,
     val title: String,

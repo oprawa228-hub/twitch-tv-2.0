@@ -1,5 +1,24 @@
 # План Twitch 2.0
 
+## Текущий этап — завершение внутренней части перед дизайном
+
+Запрос пользователя: закрыть внутреннюю часть первой полноценной версии; визуальную переработку выполнить затем. Базовые требования — TASK.txt§4,6,7,11,12; текущая база beta.4/code6. Технические решения/агенты/публикация делегированы. Используем существующие Kotlin/Compose/Media3/OkHttp, новый сервер не нужен. Сохраняем package/certificate, данные аккаунта и отдельный канал GitHub. Один план в этом файле; root управляет Gradle/эмуляторами/подписью/выпуском.
+
+Подход: исправить подтверждённые дефекты в существующих владельцах состояния, без переписывания архитектуры. Альтернативы — расширение optional-функций и смена стека — не закрывают найденные lifecycle/network дефекты. Достаточность этапа: все обязательные функции доступны, regression suite проходит, точный signed APK выдерживает расширенные реальные сценарии; внешние ограничения и недоступная physical ARM проверка перечислены явно.
+
+- [x] Независимый аудит auth/update/storage, playback/lifecycle и chat/catalog. Выявлены P2 ниже; новых подтверждённых дефектов update signature/provider/backup не найдено.
+- [x] Авторизация (`auth/AuthLifecycle.kt`, `TwitchAuth.kt`, auth tests; backend_review): после DCF-save+ошибки/отмены validate validator не должен ждать час. RED тест saved-session появился при уже спящем healthy/empty loop; затем минутный wake + hourly healthy validation + учёт loggedIn=false. Не отзывать реальную сессию/не просить нового входа.
+- [x] Воспроизведение (`PlaybackSession.kt`, `PlaybackPolicy.kt`, `PlayerScreen.kt`, playback tests; pagination_review): очистка stale error после Home/prepare; playWhenReady как intent для pause во время buffering; `positionToSave(position,duration,ended)` очищает завершённую историю. Root подключает policy в Viewing.
+- [x] Качества клипов (`Models.kt`, `TwitchRepository.kt`, `ClipSources.kt`, parsing tests; root; playback selection — pagination_review): все HTTPS MP4 варианты из настоящего Twitch; ручное переключение сохраняет позицию и pause intent, UI не обещает ABR для MP4. Tests sort/filter/signing/redaction + selection policy, затем реальный clip/качество/перемотка.
+- [x] Чат (`ChatClient.kt`, `ChatTimeline.kt`, `ChatPanel.kt`, chat tests; catalog_api): login/user-id отдельно от display-name, корректный CLEARCHAT, реальные USERNOTICE тексты, terminal NOTICE и честные connect/quiet/error статусы. Root включает socket только для live + chatEnabled + foreground, передаёт status. Tests moderation/bounds/dedup/status и native toggle/reconnect.
+- [x] Каталог (`HelixCatalogRepository.kt`, `MainActivity.kt`, `CatalogScreen.kt`, data tests; root): signed-in header не зависит от guest GQL; явное обновление первой страницы до exhaustion. Проверить обновление и возврат, отмена/ошибки сохраняют понятный путь.
+- [x] Метрики (`PlaybackMetrics.kt` и session callbacks; pagination_review; request timestamp — root): numeric-only resolver/request→first frame, rebuffer count/duration отдельно от startup/seek/Home. Fake-clock regression + никаких URL/токенов/текста чата в логах.
+- [x] Интеграция: meaningful RED→GREEN, полный JVM + Android D-pad suite; независимый итоговый review diff. Дополнительные сценарии auth expiry/401/refresh/cancel/logout проверять через фикстуры отдельно от реального аккаунта.
+- [ ] Точный release APK: 20+ live open/return с памятью после закрытия, длительный live минимум30мин с чатом/панелями, сеть→retry, pause/foreground, VOD seek/resume/completion, clip quality, settings persistence. Измерять actual durations/decoder counters, не путать emulator иphysicalTV.
+- [ ] Выпуск beta.5/code7 с постоянной подписью, публичные hashes/канал, реальный OTA6→7 с настройками и VOD history. README/HANDOFF/TEST_RESULTS/SCOPE/отчёт покрытия обновить по фактическим результатам. Дизайн не объявлять завершённым.
+
+Review focus: logout во время refresh; отмена после сохранения DCF; paused buffering→Home; завершение короткого clip; скрытый/переподключающийся чат; смена MP4 источника без сброса позиции; перезагрузка каталога с удалённой выбранной карточкой; отказ внешнего GQL при здоровом Helix.
+
 ## Завершённый этап — внутренняя часть beta.4
 
 2026-11-08: пользователь проверил приложение и сообщил, что основные функции работают; визуальную доработку отложил. Продолжаем каталог/сеть, без изменения визуального оформления. Технические решения и выполнение делегированы ранее.
@@ -43,6 +62,6 @@
 
 Финальный APK: [Twitch20-0.1.0-beta.3.apk](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.3/Twitch20-0.1.0-beta.3.apk), code5, SHA-256 `9b5fc5fc7b836a60b1bb0971cedd0cf3e5e491d298138a72dfb8e3ee8c1cf844`. Позиция VOD1:28→1:46 подтверждена при2→4; нового history check после5 не заявляем. Beta.3 меняет только launcher category и permission guidance; полного повторного42/5debug run после этого не было.
 
-Будущее расширение покрытия: физический ARM TV/аппаратный decoder/1080p60, многочасовое видео,20+ смен каналов, длительный busy chat, token expiry/refresh/revoke и больше сочетаний quality/seek/lifecycle. Эти ограничения не оставляют уже выполненные основные этапы «в процессе». Общий live каталог ограничен30, категории40, VOD/clips30; бесконечной пагинации нет. Subscriber-only/Turbo не гарантируются.
+Будущее расширение покрытия: физический ARM TV/аппаратный decoder/1080p60, многочасовое видео,20+ смен каналов, длительный busy chat, token expiry/refresh/revoke и больше сочетаний quality/seek/lifecycle. Эти ограничения не оставляют уже выполненные основные этапы «в процессе». Историческое ограничение beta.3: общий live30, категории40, VOD/clips30. В beta.4+ после входа действует курсорная пагинация; guest остаётся ограниченным первой страницей. Subscriber-only/Turbo не гарантируются.
 
 Raw XML/PNG/log/trace в `evidence/` и installed APK в `.local/` — локальные доказательства, исключённые из Git. Публичные артефакты доступны через GitHub Releases, не по локальным dist-ссылкам.

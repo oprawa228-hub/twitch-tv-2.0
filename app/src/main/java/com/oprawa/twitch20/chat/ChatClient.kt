@@ -20,7 +20,14 @@ import okhttp3.WebSocketListener
 import kotlin.random.Random
 import kotlin.coroutines.EmptyCoroutineContext
 
-data class ChatMessage(val id: String, val nickname: String, val text: String, val color: String)
+data class ChatMessage(
+    val id: String,
+    val nickname: String,
+    val text: String,
+    val color: String,
+    val login: String = "",
+    val userId: String? = null,
+)
 
 /** One read-only guest IRC WebSocket. No chat text or credentials are logged/persisted. */
 class ChatClient {
@@ -149,6 +156,13 @@ class ChatClient {
                                 retryLocked(epoch, webSocket)
                                 return
                             }
+                            is IrcEvent.Rejected -> {
+                                // A terminal JOIN/auth refusal is not a transport outage.
+                                // Invalidate this socket and retries; an explicit connect may try again.
+                                cancelSocketOnIo(disconnectLocked())
+                                mutableStatus.value = event.message
+                                return
+                            }
                             else -> handleLocked(event, webSocket)
                         }
                         index = pending.indexOf("\r\n")
@@ -190,18 +204,8 @@ class ChatClient {
     }
 
     private fun handleLocked(event: IrcEvent?, webSocket: WebSocket) {
-        when (event) {
-            is IrcEvent.Ping -> webSocket.send("PONG :${event.payload}\r\n")
-            is IrcEvent.Message -> {
-                if (mutableMessages.value.none { it.id == event.value.id }) {
-                    mutableMessages.value = (mutableMessages.value + event.value).takeLast(150)
-                }
-            }
-            is IrcEvent.Delete -> mutableMessages.value = mutableMessages.value.filterNot { it.id == event.id }
-            is IrcEvent.Clear -> mutableMessages.value = if (event.nickname == null) emptyList()
-                else mutableMessages.value.filterNot { it.nickname.equals(event.nickname, ignoreCase = true) }
-            IrcEvent.RoomState, IrcEvent.Reconnect, null -> Unit
-        }
+        if (event is IrcEvent.Ping) webSocket.send("PONG :${event.payload}\r\n")
+        else mutableMessages.value = ChatTimeline.apply(mutableMessages.value, event)
     }
 }
 
@@ -211,7 +215,8 @@ internal sealed interface IrcEvent {
     data class Message(val value: ChatMessage) : IrcEvent
     data class Ping(val payload: String) : IrcEvent
     data class Delete(val id: String) : IrcEvent
-    data class Clear(val nickname: String?) : IrcEvent
+    data class Clear(val nickname: String?, val userId: String? = null) : IrcEvent
+    data class Rejected(val message: String) : IrcEvent
 }
 
 internal object IrcParser {
@@ -241,16 +246,26 @@ internal object IrcParser {
             "RECONNECT" -> IrcEvent.Reconnect
             "ROOMSTATE" -> IrcEvent.RoomState
             "PING" -> trailing?.take(200)?.replace("\r", "")?.replace("\n", "")?.let(IrcEvent::Ping)
-            "PRIVMSG" -> {
+            "PRIVMSG", "USERNOTICE" -> {
                 val body = trailing ?: return null
-                val name = tags["display-name"]?.takeIf { it.isNotBlank() } ?: prefix.substringBefore('!')
+                if (body.isBlank()) return null
+                // USERNOTICE has a server prefix; the author's login is in tags.
+                val login = if (command == "USERNOTICE") tags["login"].orEmpty() else prefix.substringBefore('!')
+                val name = tags["display-name"]?.takeIf { it.isNotBlank() } ?: login
                 if (name.isBlank()) return null
                 val normalized = if (body.startsWith("\u0001ACTION ") && body.endsWith('\u0001')) body.substring(8, body.length - 1) else body
                 IrcEvent.Message(ChatMessage(tags["id"]?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
-                    name.take(64), normalized.take(500), tags["color"]?.takeIf { it.matches(Regex("#[0-9a-fA-F]{6}")) } ?: "#A6B3C6"))
+                    name.take(64), normalized.take(500), tags["color"]?.takeIf { it.matches(Regex("#[0-9a-fA-F]{6}")) } ?: "#A6B3C6",
+                    login.take(64), tags["user-id"]?.takeIf { it.isNotBlank() }))
             }
             "CLEARMSG" -> tags["target-msg-id"]?.takeIf { it.isNotBlank() }?.let(IrcEvent::Delete)
-            "CLEARCHAT" -> IrcEvent.Clear(trailing?.takeIf { it.isNotBlank() })
+            "CLEARCHAT" -> IrcEvent.Clear(trailing?.takeIf { it.isNotBlank() }, tags["target-user-id"]?.takeIf { it.isNotBlank() })
+            "NOTICE" -> when {
+                tags["msg-id"] == "msg_channel_suspended" -> IrcEvent.Rejected("Чат канала недоступен.")
+                trailing == "Login authentication failed" || trailing == "Improperly formatted auth" ->
+                    IrcEvent.Rejected("Twitch отклонил подключение к чату.")
+                else -> null
+            }
             else -> null
         }
     }

@@ -4,7 +4,9 @@ import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.oprawa.twitch20.chat.ChatMessage
+import com.oprawa.twitch20.chat.ChatPresentation
 import com.oprawa.twitch20.settings.AppSettings
 import com.oprawa.twitch20.settings.ChatPosition
 
@@ -44,7 +47,7 @@ object ChatLayout {
 }
 
 @Composable
-fun ChatPanel(messages: List<ChatMessage>, settings: AppSettings, modifier: Modifier = Modifier) {
+fun ChatPanel(messages: List<ChatMessage>, settings: AppSettings, modifier: Modifier = Modifier, status: String = "") {
     val shown = remember(messages) { messages.takeLast(100) }
     val state = rememberLazyListState()
     LaunchedEffect(shown.lastOrNull()?.id) {
@@ -52,23 +55,27 @@ fun ChatPanel(messages: List<ChatMessage>, settings: AppSettings, modifier: Modi
     }
     Box(modifier.clip(RoundedCornerShape(5.dp))
         .background(TvColors.Background.copy(alpha = settings.chatOpacity.coerceIn(0f, 1f)))) {
-        if (shown.isEmpty()) Text("Чат подключается…", color = TvColors.Muted,
-            fontSize = settings.chatTextSizeSp.sp, modifier = Modifier.padding(10.dp))
-        LazyColumn(state = state, modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.Bottom)) {
-            items(shown, key = { it.id }) { message ->
-                val nickColor = remember(message.color) {
-                    runCatching { Color(AndroidColor.parseColor(message.color)) }
-                        .getOrDefault(TvColors.Link)
-                }
-                Text(buildAnnotatedString {
-                    withStyle(SpanStyle(color = nickColor, fontWeight = FontWeight.Bold)) {
-                        append(message.nickname); append(": ")
+        Column(Modifier.fillMaxSize()) {
+            ChatPresentation.statusLabel(status, shown.isNotEmpty())?.let { label ->
+                Text(label, color = TvColors.Muted,
+                    fontSize = settings.chatTextSizeSp.sp, modifier = Modifier.padding(10.dp))
+            }
+            LazyColumn(state = state, modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.Bottom)) {
+                items(shown, key = { it.id }) { message ->
+                    val nickColor = remember(message.color) {
+                        runCatching { Color(AndroidColor.parseColor(message.color)) }
+                            .getOrDefault(TvColors.Link)
                     }
-                    append(message.text)
-                }, modifier = if (settings.animationsEnabled) Modifier.animateItem() else Modifier,
-                    color = TvColors.Text, fontSize = settings.chatTextSizeSp.sp,
-                    lineHeight = (settings.chatTextSizeSp * 1.35f).sp)
+                    Text(buildAnnotatedString {
+                        withStyle(SpanStyle(color = nickColor, fontWeight = FontWeight.Bold)) {
+                            append(message.nickname); append(": ")
+                        }
+                        append(message.text)
+                    }, modifier = if (settings.animationsEnabled) Modifier.animateItem() else Modifier,
+                        color = TvColors.Text, fontSize = settings.chatTextSizeSp.sp,
+                        lineHeight = (settings.chatTextSizeSp * 1.35f).sp)
+                }
             }
         }
     }

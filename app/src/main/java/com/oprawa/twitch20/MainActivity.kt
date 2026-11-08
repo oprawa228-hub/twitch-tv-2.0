@@ -1,6 +1,7 @@
 package com.oprawa.twitch20
 
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -35,6 +36,7 @@ import com.oprawa.twitch20.auth.DeviceAuthorization
 import com.oprawa.twitch20.chat.ChatClient
 import com.oprawa.twitch20.data.*
 import com.oprawa.twitch20.playback.PlaybackSession
+import com.oprawa.twitch20.playback.PlaybackPolicy
 import com.oprawa.twitch20.settings.SettingsStore
 import com.oprawa.twitch20.update.UpdateManager
 import com.oprawa.twitch20.ui.*
@@ -101,8 +103,14 @@ private fun TwitchApp() {
                     CatalogPage(page.items.map { CatalogItem.Game(it) }, page.nextCursor)
                 }
                 "channel", "clips" -> {
-                    if (requested.kind == "channel" && after == null)
-                        channelInfo[requested.key] = repository.channel(requested.value)
+                    if (requested.kind == "channel" && after == null) {
+                        // Header failure must not block available recordings or the clips action.
+                        channelInfo[requested.key] = try {
+                            if (signedIn) helix.channel(requested.value) else repository.channel(requested.value)
+                        } catch (cancel: CancellationException) { throw cancel }
+                        catch (_: Exception) { Channel(requested.value, requested.value,
+                            requested.title.ifBlank { requested.value }, "", "", "", live = false) }
+                    }
                     val page = if (requested.kind == "clips") {
                         if (signedIn) helix.clipsPage(requested.value, after) else CatalogPage(repository.clips(requested.value), null)
                     } else {
@@ -241,6 +249,10 @@ private fun TwitchApp() {
     val chat=remember { ChatClient() }
     val settings by store.state.collectAsStateWithLifecycle()
     val messages by chat.messages.collectAsStateWithLifecycle()
+    val chatStatus by chat.status.collectAsStateWithLifecycle()
+    var chatPreviewEnabled by remember { mutableStateOf<Boolean?>(null) }
+    val chatNeeded = chatPreviewEnabled ?: settings.chatEnabled
+    val currentChatEnabled by rememberUpdatedState(chatNeeded)
     val lifecycleOwner=LocalLifecycleOwner.current
     var resolving by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -248,13 +260,15 @@ private fun TwitchApp() {
     val positions=remember { PlaybackHistory(context) }
     fun savePosition() {
         if(target.kind!="live" && session.player.mediaItemCount>0)
-            positions.save(target.kind,target.id,session.player.currentPosition.coerceAtLeast(0))
+            positions.save(target.kind,target.id,PlaybackPolicy.positionToSave(
+                session.player.currentPosition, session.player.duration,
+                session.player.playbackState == androidx.media3.common.Player.STATE_ENDED))
     }
     DisposableEffect(session,lifecycleOwner) {
         val observer=LifecycleEventObserver { _,event ->
             when(event) {
                 Lifecycle.Event.ON_STOP -> { savePosition();session.onBackground();chat.close() }
-                Lifecycle.Event.ON_START -> { session.onForeground();if(target.kind=="live") chat.connect(target.login) }
+                Lifecycle.Event.ON_START -> { session.onForeground();if(target.kind=="live" && currentChatEnabled) chat.connect(target.login) }
                 else -> Unit
             }
         }
@@ -268,14 +282,17 @@ private fun TwitchApp() {
     LaunchedEffect(session) {
         while(true) { delay(15_000);savePosition() }
     }
-    LaunchedEffect(target.login) {
-        if(target.kind=="live" && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) chat.connect(target.login) else chat.close()
+    LaunchedEffect(target.login, chatNeeded) {
+        if(target.kind=="live" && chatNeeded && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) chat.connect(target.login) else chat.close()
     }
     LaunchedEffect(target,retry) {
+        val requestStartedAtMs = SystemClock.elapsedRealtime()
         resolving=true;error=null
         try {
-            val url=when(target.kind) { "live"->repository.resolveLive(target.id);"clip"->repository.resolveClip(target.id);else->repository.resolveVideo(target.id) }
-            session.play(url,"${target.kind}:${target.id}",target.kind=="live",positions.read(target.kind,target.id))
+            val variants = if(target.kind=="clip") repository.resolveClipVariants(target.id) else emptyList()
+            val url=when(target.kind) { "live"->repository.resolveLive(target.id);"clip"->variants.first().url;else->repository.resolveVideo(target.id) }
+            session.play(url,"${target.kind}:${target.id}",target.kind=="live",positions.read(target.kind,target.id),
+                requestStartedAtMs=requestStartedAtMs, progressiveVariants=variants)
             if(!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))session.onBackground()
         } catch(cancel:CancellationException){throw cancel}
         catch(e:Exception){error=if(e is TwitchException)e.message else "Не удалось подключиться. Проверьте сеть и повторите."}
@@ -285,8 +302,9 @@ private fun TwitchApp() {
     if(error!=null) MessageScreen("Видео недоступно",error!!,"Повторить"){retry++}
     else if(resolving) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("Подключение к Twitch…",color=TvColors.Text)}
     else PlayerScreen(session,target.title,target.subtitle,onBack,
-        chatContent=if(target.kind=="live") ({previewSettings -> ChatPanel(messages,previewSettings)}) else null,
-        settings=settings,onSettings=onSettings,onSettingsChange={store.save(it)},onRetry={savePosition();retry++})
+        chatContent=if(target.kind=="live") ({previewSettings -> ChatPanel(messages,previewSettings,status=chatStatus)}) else null,
+        settings=settings,onSettings=onSettings,onSettingsChange={store.save(it)},
+        onChatPreview={chatPreviewEnabled=it},onRetry={savePosition();retry++})
 }
 
 @Composable private fun AccountScreen(auth:TwitchAuth) {

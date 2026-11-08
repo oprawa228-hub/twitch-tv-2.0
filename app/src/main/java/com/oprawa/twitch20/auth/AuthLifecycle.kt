@@ -18,11 +18,22 @@ internal suspend fun runAuthValidationLoop(
     pause: suspend (Long) -> Unit = { delay(it) },
 ) {
     validate()
+    var waitedSinceValidation = 0L
     while (currentCoroutineContext().isActive) {
-        pause(if (retryNeeded()) 60_000L else 3_600_000L)
-        validate()
+        // Account state can change while idle: a new DCF session may be saved
+        // after startup. Re-read that state every minute without polling a
+        // healthy account's network endpoint more than once an hour.
+        pause(60_000L)
+        waitedSinceValidation += 60_000L
+        if (retryNeeded() || waitedSinceValidation >= 3_600_000L) {
+            validate()
+            waitedSinceValidation = 0L
+        }
     }
 }
+
+internal fun needsAuthValidationRetry(hasSavedSession: Boolean, state: AuthState): Boolean =
+    hasSavedSession && (!state.loggedIn || state.error != null)
 
 /** Rotation must commit the replacement credentials even if a screen stops waiting. */
 internal suspend fun <T> refreshTransaction(operation: suspend () -> T): T {

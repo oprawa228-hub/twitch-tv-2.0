@@ -19,3 +19,5 @@ Refero: supplied current screenshots replace absent live Refero tools; no new br
 Компьютер: computer-use skill26.1103.32239, UI through cua_repl for GitHub repo creation; connected GitHub tools used where capabilities exist.
 
 android-profiler применён для записи Perfetto и разделения измерений CPU, кадров UI, декодера и памяти; результаты в PERFORMANCE.md. verification-before-completion применён перед передачей: сверены тесты, публичный APK, установленный APK и фактический путь OTA.
+
+media3-analytics-telemetry v1.1 (Shunnek Labs, Apache-2.0), `C:/Users/Opraw/.codex/skills/media3-analytics-telemetry/SKILL.md`, SHA-256 `25029D7F394FD96EBB281AD69FF5608381C6863E8C267934E5C96D7E8A30F114`: beta.5 request/prepare→first frame, разделение startup/rebuffer/seek/foreground/quality, числовые decoder counters без URL/токенов. Версия Media31.11.1 сохраняется по проверенному исследованию проекта; устаревший pin1.10.1 из навыка не применяется.

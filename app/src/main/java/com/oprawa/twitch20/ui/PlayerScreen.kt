@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -78,6 +79,7 @@ fun PlayerScreen(
     settings: AppSettings = AppSettings(),
     onSettings: () -> Unit = {},
     onSettingsChange: (AppSettings) -> Unit = {},
+    onChatPreview: (Boolean?) -> Unit = {},
     onRetry: () -> Unit = { session.retry() },
 ) {
     val state by session.state.collectAsStateWithLifecycle()
@@ -97,6 +99,10 @@ fun PlayerScreen(
     val settingsFocus = remember { FocusRequester() }
     val draftFocus = remember { FocusRequester() }
     val effectiveSettings = if (chatSettingsOpen) draftSettings else settings
+    LaunchedEffect(chatSettingsOpen, effectiveSettings.chatEnabled) {
+        onChatPreview(if (chatSettingsOpen) effectiveSettings.chatEnabled else null)
+    }
+    DisposableEffect(Unit) { onDispose { onChatPreview(null) } }
     val panelOpen = qualityOpen || chatSettingsOpen
     var clockText by remember { mutableStateOf("") }
     LaunchedEffect(effectiveSettings.showClock) {
@@ -256,9 +262,9 @@ fun PlayerScreen(
                     if (!state.isLive) VodProgress(state)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        PlayerAction(if (state.isPlaying) "Пауза" else if (state.isLive) "К эфиру" else "Смотреть",
+                        PlayerAction(if (state.showPauseAction) "Пауза" else if (state.isLive) "К эфиру" else "Смотреть",
                             Modifier.focusRequester(pauseFocus)) {
-                            if (state.isPlaying) session.pause() else session.resume()
+                            if (state.showPauseAction) session.pause() else session.resume()
                         }
                         if (!state.isLive) {
                             PlayerAction("−10 с") { session.seekBy(-10_000) }
@@ -289,9 +295,10 @@ fun PlayerScreen(
             Column(Modifier.width(300.dp).fillMaxHeight().background(PlayerPanel).padding(22.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("Качество видео", color = PlayerText, fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
-                Text("Авто подбирает качество по скорости сети", color = PlayerMuted, fontSize = 12.sp)
+                Text(if (state.canAutoSelectQuality) "Авто подбирает качество по скорости сети"
+                    else "Выберите качество клипа", color = PlayerMuted, fontSize = 12.sp)
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item {
+                    if (state.canAutoSelectQuality) item {
                         PlayerAction(if (state.selectedQualityId == null) "✓ Авто" else "Авто",
                             Modifier.fillMaxWidth().focusRequester(autoFocus)) {
                             session.selectQuality(null); closeQuality()
@@ -299,7 +306,9 @@ fun PlayerScreen(
                     }
                     items(state.qualityOptions, key = { it.id }) { quality ->
                         PlayerAction(if (quality.id == state.selectedQualityId) "✓ ${quality.label}" else quality.label,
-                            Modifier.fillMaxWidth()) {
+                            Modifier.fillMaxWidth().then(if (!state.canAutoSelectQuality &&
+                                quality.id == state.qualityOptions.firstOrNull()?.id) Modifier.focusRequester(autoFocus)
+                                else Modifier)) {
                             session.selectQuality(quality.id); closeQuality()
                         }
                     }
