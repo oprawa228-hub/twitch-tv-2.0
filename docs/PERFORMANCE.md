@@ -1,5 +1,23 @@
 # Performance evidence — 2026-11-08
 
+## Beta.5 — текущий кандидат
+
+Exact signed/minified code7: SHA-256 `cb26d9eb713e246725ca70d9e0ebd050a0a3fb30a948a69ae80e45434bd21f10`, 2 733 968 байт. Primary API30/x86/SwiftShader,4vCPU/2GB; вторичный AVD включён, общий Windows host. Во время этого прогона Gradle/R8 не выполнялся. Это не физический TV benchmark.
+
+**22 разных канала открылись с первой попытки, все22 возврата сохранили карточку.** Выборка `evidence/beta5-final-cycles/` и `beta5-final-cycles-summary.json`; одна секунда после первого кадра, одинаковое окно2s после закрытия перед meminfo, без принудительного GC. Auto и реальные меняющиеся потоки; это не сравнение одного фиксированного encode.
+
+| Метрика текущего APK | Значение |
+|---|---:|
+| Request→first frame min / median / p95 / max | 2314 / 3068 / 3962 / 4307 ms |
+| PSS после возврата, первый / последний | 64 056 / 85 946 KB |
+| PSS после возврата, min / max | 64 056 / 92 699 KB |
+
+Таймер включает разрешение источника и подготовку до первого кадра, но не физическую задержку пульта/дисплея. p95 — nearest-rank. Кэш прогревается, PSS меняется немонотонно; это ограниченная выборка, не доказательство отсутствия всех утечек и не причинное сравнение с прошлым кандидатом.
+
+Длительный480p прогон KSPKSP на текущем APK **FAIL**: renderer44.327s,1317 rendered/0 dropped/54 skipped, runtime4003. `SoftAVCDec Fatal Error:0xffffffff`/ACodec0x80001019 предшествует Java codec exception. PSS105518→99151KB. Источники `evidence/beta5-final-soak480/` и `beta5-final-soak480-codec.log`. Это не30minPASS и не исправление двух предыдущих720p60 failures. Причина сочетания потока/decoder/Media3 пока не установлена.
+
+Начат отдельный сравнительный прогон другого канала AliBumayeTV/480p; итог ожидается. Периодические UiAutomation снимки выключены; null в chat fields sampler означает отсутствие такого измерения, а не отсутствие сообщений.
+
 ## Beta.5 — предварительный кандидат, не финальный APK
 
 2026-11-08, exact signed/minified code7, SHA-256 `68a655937e417d763c3b18c57ddb9a4d1baaf30628217160804fafffe01aa0fb`, 2 733 965 байт. Primary `Twitch20Test`/5560: API30x86,4vCPU/2GB,SwiftShader; тот же общий Windows host, второй AVD включён и использован для подготовки OTA. Во время этой выборки Gradle/R8 не запускался. Это не физический TV/аппаратный decoder benchmark.

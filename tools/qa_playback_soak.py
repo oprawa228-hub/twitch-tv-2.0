@@ -13,6 +13,7 @@ p.add_argument('--label', default='beta5-soak')
 p.add_argument('--since', default='1')
 p.add_argument('--no-periodic-ui', action='store_true', help='Measure memory/logs without periodic UiAutomation attachment')
 p.add_argument('--quality', default='720p60')
+p.add_argument('--return-title', default='Прямые эфиры')
 args = p.parse_args()
 assert (1 if args.observe_existing else 30) <= args.minutes <= 120
 assert re.fullmatch(r'[a-zA-Z0-9_-]+', args.label)
@@ -94,7 +95,7 @@ with logpath.open('wb') as output:
         observe(args.label + '-end-live')
         for _ in range(4):
             root = ET.fromstring(hierarchy())
-            if any(n.get('text') == 'Прямые эфиры' for n in root.iter('node')): break
+            if any(n.get('text') == args.return_title for n in root.iter('node')): break
             adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
         else: raise AssertionError('Soak did not return to catalog')
         time.sleep(2)

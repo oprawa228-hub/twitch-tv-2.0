@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import java.util.UUID
 import kotlin.math.roundToInt
 
 enum class PlaybackStatus { Idle, Buffering, Ready, Ended, Error }
@@ -84,7 +85,10 @@ class PlaybackSession(context: Context) {
                 .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
             setHandleAudioBecomingNoisy(true)
         }
-    private val mediaSession = MediaSession.Builder(context.applicationContext, player).build()
+    // A stopped Activity can retain its owner while another owner is constructed.
+    // Session identity belongs to this owner, not to a channel or the default empty ID.
+    private val mediaSession = MediaSession.Builder(context.applicationContext, player)
+        .setId(UUID.randomUUID().toString()).build()
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) { publish() }

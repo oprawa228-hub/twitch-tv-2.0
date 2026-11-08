@@ -27,6 +27,13 @@
 
 Review focus: logout во время refresh; отмена после сохранения DCF; paused buffering→Home; завершение короткого clip; скрытый/переподключающийся чат; смена MP4 источника без сброса позиции; перезагрузка каталога с удалённой выбранной карточкой; отказ внешнего GQL при здоровом Helix.
 
+### Дополнение beta.6 — повторный запуск Activity
+
+Beta.5/code7 опубликован неизменяемым APK cb26…; OTA6→7 и settings/VOD1:23 retention подтверждены. После установки найден новый crash: paused VOD→Home→explicit MainActivity start создаёт второй Activity; открытие нового видео получает `Session ID must be unique. ID=`. `evidence/beta5-secondary-lifecycle.log`/17:46:39. Это дефект владения приложением, отдельно от decoder4003.
+
+- [x] RED Android MediaSessionOwnershipTest1/1; unique MediaSession ID + singleTask. GREEN121JVM и8Android/59.072с наguest, отдельныйauth scenario ожидаетprimary. Exactrelease8/459ff94… native paused иplaying VOD→Home→explicitlaunch сохраняютActivity/intent/position. Clipqualitypause0:04 иended0:29→reopen0:00 проверены отдельно.
+- [ ] Beta.6/code8: полный JVM/Android, targeted native Home/relaunch playing/paused, clip quality/completion; отдельная подпись/hash и OTA7→8. Не подменять результаты длительного beta.5 прогона результатами beta.6; decoder path остаётся прежним.
+
 ## Завершённый этап — внутренняя часть beta.4
 
 2026-11-08: пользователь проверил приложение и сообщил, что основные функции работают; визуальную доработку отложил. Продолжаем каталог/сеть, без изменения визуального оформления. Технические решения и выполнение делегированы ранее.
