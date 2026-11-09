@@ -1,5 +1,15 @@
 # Передача результата Twitch 2.0
 
+## Доставлена beta.12
+
+[APK](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.12/Twitch20-0.1.0-beta.12.apk) · [выпуск](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/tag/v0.1.0-beta.12) · [подробный отчёт](RELEASE_BETA12.md). Code14, постоянная подпись, SHA-256 `a75aa4b0958fe7592f2caed1f6a25b47d0a781e3593d359876ad42637fc26b93`.
+
+Вход распространён на live-видео, catalog/sidebar preview; свежий источник передаётся в плеер один раз. 207 JVM PASS, release lint0errors. В точном signed APK на Twitch20Modern с аккаунтом пользователя KaiCenat дал видео до/после длинной паузы и повторного Play, без повторного source resolve и player_error. На Twitch20Release normal OTA13→14 PASS; публичный/установленный SHA совпал, настройки сохранены. История VOD в этом OTA отдельно не проверялась.
+
+Пользователю после обновления нужен новый вход (Настройки → Аккаунт): beta.12 использует совместимый TV Client ID, проверенный в1.0/test.2. Прежний токен собственного Client ID для этого не подходит. Физический TV и будущие рекламные вставки не проверены; отсутствие всех заглушек не обещается.
+
+Ниже — история beta.11 и более ранних этапов.
+
 ## Доставка beta.11 подтверждена
 
 - [Скачать APK](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.11/Twitch20-0.1.0-beta.11.apk), [страница выпуска](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/tag/v0.1.0-beta.11). Размер 2 821 901 байт, code13, SHA-256 `7140b4d528963a6ca17fe716453e6dcf5cc0e31a70b25d8ec063ce9898280ff1`.
