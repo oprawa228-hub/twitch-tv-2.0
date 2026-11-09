@@ -175,3 +175,7 @@ Root создал отдельный эмулятор `Twitch20Modern`/5564 с �
 После положительного визуального контроля в default selector добавлено отключение seamless adaptive reuse **только для `c2.goldfish.h264.decoder` с MIMEvideo/avc**. `AvcResolutionCompatibility` не меняет порядок выбора, capabilities, hardware/software/vendor/secure flags и возвращает исходный объект для всех других codecs. OMX остаётся исключительно неуспешным DEBUG экспериментом. Source/tracker не перезапускаются, адаптивный выбор качества возможен через штатное non-seamless переключение. Это совместимость с конкретным эмуляторным decoder, а не универсальное изменение всех телевизоров.
 
 Новые native проверки: `goldfishResolutionChangeRecreatesDecoderWithProductionPolicy` принудительно отключает экспериментальный preference, проверяет180→90, REUSE_NO и один master; `productionCodecSelectorKeepsOrderAndOtherDecoderCapabilities` сверяет реальный список codec и сохранение остальных объектов/полей. Их запуск и повторная визуальная проверка подписанного release поручены root. До этого production patch остаётся подготовленным кандидатом, а не окончательным release PASS.
+
+## Итог приёмки root
+
+Root выполнил последний playback-прогон18/18 PASS на TV16 за213,865с, включая production Goldfish без диагностического флага. Точный signed APK7140b4d5… прошёл более9мин реального Riot с полным кадром, паузой, повторным PLAY и ручными720p60; source recovery/error отсутствуют. Публикация и OTA12→13 завершены. Подробности доставки: [DESIGN_BETA11.md](DESIGN_BETA11.md).
