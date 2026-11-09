@@ -1,6 +1,6 @@
 # Beta.12 — авторизованное live-видео
 
-Кандидат подготовлен 2026-11-10. Пользователь поручил публикацию. До завершения отдельной проверки публичных файлов и OTA этот документ не объявляет доставку завершённой.
+Опубликована 2026-11-10 по поручению пользователя: [страница выпуска](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/tag/v0.1.0-beta.12), [APK](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.12/Twitch20-0.1.0-beta.12.apk). Публичные файлы, канал и штатное OTA проверены.
 
 ## Что изменено
 
@@ -28,4 +28,10 @@ Twitch20Modern / emulator-5564 / API36, реальный аккаунт поль
 
 ## Публикация и OTA
 
-Проверяются отдельно после загрузки точных файлов на GitHub. Предыдущая beta.11/code13 на Twitch20Release / emulator-5562 сохранена для штатного обновления. Текущий источник канала: releases API, резервный `updates/test.json`.
+Source/tag: `542c922ecbeab5d81032e389d4a26504a63bf780`, source tree `6302fdb60a550fe9d1dcb2767c9ce0c6bd151912`. GitHub Release prerelease опубликован, APK (2821902 байт), update.json и SHA256SUMS.txt скачаны по обычным публичным URL и побайтно совпали со staged-кандидатом. Feed commit `9cb62e31df74ee519f96cc5b47e6e12f882f748c`; обычный raw URL вернул code14 и SHA выше.
+
+Twitch20Release / emulator-5562 / API30: на установленной beta.11/code13 с hash7140b4d5… пультом выполнены «Проверить обновления» → «Скачать 0.1.0-beta.12» → «Установить обновление» → системные INSTALL/OPEN. Установленный APK совпал с публичным по полному SHA. Это штатное OTA, не adb install.
+
+До/после сопоставлены реальные UI-значения: overlay выключен, размер средний, текст компактный, фон средний, положение справа сверху; THEATER включён, его текст компактный; часы показаны, анимации и preview включены. Все совпали. Этот AVD был гостевым и остался гостевым; аккаунт подтверждён отдельно на5564. История VOD в этом OTA заново не воспроизводилась; её код и хранилище не изменялись. Не называем сохранение истории отдельной пройденной native-проверкой.
+
+Доказательства: `evidence/beta12-public-verification.json`, `beta12-ota-install.log`, `beta12-ota-retention.json`, `beta12-ota-retention.log`; `evidence/android/beta12-ota-before-*.xml/png`, `beta12-ota-after-*.xml/png`, `beta12-ota-version.png`. Старый проект и его канал обновлений не менялись.
