@@ -1,5 +1,8 @@
 package com.oprawa.twitch20.data
 
+import android.util.Log
+import com.oprawa.twitch20.BuildConfig
+import com.oprawa.twitch20.auth.StoredSession
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +25,7 @@ import kotlin.coroutines.EmptyCoroutineContext
 
 /**
  * Isolates Twitch's undocumented public website integration.
- * No account OAuth token is sent here. See docs/research-twitch.md.
+ * The standard resolver is anonymous. Account playback is limited to the local test build.
  * Returned media URLs are short-lived capabilities: never persist or log them.
  */
 class TwitchRepository(
@@ -90,6 +93,14 @@ class TwitchRepository(
             JSONObject().put("login", login),
         )
         return masterUrl(listOf("api", "channel", "hls", "$login.m3u8"), TwitchJson.playbackToken(data, "streamPlaybackAccessToken"))
+    }
+
+    internal suspend fun resolveLegacyLive(login: String, session: StoredSession): String = withContext(Dispatchers.IO) {
+        val request = LegacyLiveAccess.request(login, session, BuildConfig.LEGACY_TV_CLIENT_ID.isNotEmpty(), BuildConfig.LEGACY_TV_CLIENT_ID)
+        val direct = client.newBuilder().followRedirects(false).followSslRedirects(false).build()
+        val url = LegacyLiveAccess.masterUrl(login, direct.newCall(request).awaitBody(), session.userId)
+        Log.i("TwitchPlayback", "legacy_source_resolved account_match=true")
+        url
     }
 
     suspend fun resolveVideo(id: String): String {

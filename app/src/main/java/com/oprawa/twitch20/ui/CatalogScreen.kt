@@ -128,8 +128,10 @@ fun CatalogScreen(
     var suspendedIndex by rememberSaveable { mutableStateOf(-1) }
     var suspendedOffset by rememberSaveable { mutableStateOf(0) }
     var gridHasFocus by remember { mutableStateOf(false) }
-    val requesters = remember { mutableMapOf<String, FocusRequester>() }
-    keys.forEach { requesters.getOrPut(it) { FocusRequester() } }
+    val requesterCache = remember { mutableMapOf<String, FocusRequester>() }
+    val requesters = remember(keys) {
+        requesterCache.apply { keys.forEach { getOrPut(it) { FocusRequester() } } }
+    }
     val emptyRequester = remember { FocusRequester() }
     var restored by remember(revision) { mutableStateOf(false) }
     var focusedEntryKey by remember { mutableStateOf<String?>(null) }

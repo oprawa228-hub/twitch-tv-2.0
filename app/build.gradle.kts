@@ -5,6 +5,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 val signing = Properties().apply { rootProject.file("signing.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) } }
+val legacyTvClientId = providers.gradleProperty("legacyTvClientId").orElse("").get()
+require(legacyTvClientId.isEmpty() || legacyTvClientId.matches(Regex("[a-z0-9]{30}")))
 android {
     namespace = "com.oprawa.twitch20"
     compileSdk = 36
@@ -15,6 +17,8 @@ android {
         versionCode = providers.gradleProperty("releaseCode").orElse("1").get().toInt()
         versionName = providers.gradleProperty("releaseName").orElse("0.1.0-alpha.1").get()
         buildConfigField("String", "TWITCH_CLIENT_ID", "\"${providers.gradleProperty("twitchClientId").orElse("").get()}\"")
+        buildConfigField("String", "LEGACY_TV_CLIENT_ID", "\"\"")
+        manifestPlaceholders["appLabel"] = "Twitch 2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
@@ -26,8 +30,18 @@ android {
         }
     }
     buildTypes {
-        debug { if (signing.isNotEmpty()) signingConfig = signingConfigs.getByName("release") }
+        debug {
+            if (legacyTvClientId.isNotEmpty()) {
+                applicationIdSuffix = ".legacytest"
+                versionNameSuffix = "-legacy-tv"
+                manifestPlaceholders["appLabel"] = "Twitch 2.0 — тест входа"
+                buildConfigField("String", "LEGACY_TV_CLIENT_ID", "\"$legacyTvClientId\"")
+            } else if (signing.isNotEmpty()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
         release {
+            buildConfigField("String", "LEGACY_TV_CLIENT_ID", "\"$legacyTvClientId\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

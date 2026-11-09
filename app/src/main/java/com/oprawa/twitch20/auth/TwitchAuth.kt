@@ -145,6 +145,10 @@ class TwitchAuth(context: Context, private val clientId: String) {
                 val current = load() ?: return@withLock
                 if (current.clientId != clientId || clientId.isBlank()) {
                     clearLocal(epoch)
+                    synchronized(gate) {
+                        if (generation.get() == epoch) mutableState.value = AuthState(
+                            error = "Способ входа обновлён. Войдите в Twitch снова для просмотра с вашим аккаунтом.")
+                    }
                     return@withLock
                 }
                 publish(checkSession(current, epoch), epoch)
@@ -218,6 +222,13 @@ class TwitchAuth(context: Context, private val clientId: String) {
         val saved = load() ?: throw AuthException("Войдите в Twitch, чтобы увидеть отслеживаемые каналы.")
         if (saved.clientId != clientId) throw AuthException("Настройки входа изменились. Войдите снова.")
         return checkSession(saved, epoch).also { publish(it, epoch) }
+    }
+
+    internal suspend fun legacyLiveSession(): StoredSession? = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            if (load() == null) return@withLock null
+            validatedAccount(generation.get())
+        }
     }
 
     /** Official authenticated catalog GET; credentials remain inside the account owner. */

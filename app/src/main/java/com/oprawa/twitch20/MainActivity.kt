@@ -7,6 +7,7 @@ import android.os.SystemClock
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -72,8 +73,17 @@ private fun TwitchApp() {
     val repository = remember { TwitchRepository() }
     val settingsStore = remember { SettingsStore(context) }
     val settings by settingsStore.state.collectAsStateWithLifecycle()
-    val auth = remember { TwitchAuth(context, BuildConfig.TWITCH_CLIENT_ID) }
+    val legacyLive = BuildConfig.LEGACY_TV_CLIENT_ID.isNotEmpty()
+    val auth = remember {
+        TwitchAuth(context, if (legacyLive) BuildConfig.LEGACY_TV_CLIENT_ID else BuildConfig.TWITCH_CLIENT_ID)
+    }
     val authState by auth.state.collectAsStateWithLifecycle()
+    val liveSources = remember(repository, auth, legacyLive) {
+        LiveSourceResolver(session = { if (legacyLive) auth.legacyLiveSession() else null },
+            guest = repository::resolveLive, authenticated = repository::resolveLegacyLive,
+            onEvent = { if (BuildConfig.DEBUG) android.util.Log.i("TwitchPlayback", it) })
+    }
+    LaunchedEffect(authState.loggedIn, authState.displayName) { liveSources.clear() }
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var appForeground by remember(lifecycle) {
@@ -261,7 +271,7 @@ private fun TwitchApp() {
         if(!settingsOpen && !aboutOpen && !accountOpen && !exitOpen) {
         if(active!=null) {
             key(active.id,active.kind) {
-                Viewing(active,repository,settingsStore,onBack={watching=null},
+                Viewing(active,repository,settingsStore,resolveLive=liveSources::play,onBack={watching=null},
                     onControlsVisibleChanged={playerControlsVisible=it})
             }
         } else Row(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
@@ -309,7 +319,7 @@ private fun TwitchApp() {
                 if(route.kind=="account") {
                     AccountScreen(auth)
                 } else if(route.kind=="rail-channel" && railChannelPreview != null) {
-                    SidebarChannelPreview(railChannelPreview!!, settings.cardPreviewEnabled) { repository.resolveLive(it.login) }
+                    SidebarChannelPreview(railChannelPreview!!, settings.cardPreviewEnabled) { liveSources.preview(it.login) }
                 } else if(route.kind in setOf("following", "recordings") && !authState.loggedIn) {
                     MessageScreen(if(route.kind=="following") "Каналы" else "Записи",
                         "Войдите в Twitch, чтобы видеть свои каналы и их записи.", "Войти", autoFocus=!railOwnsFocus || !userNavigated) {
@@ -361,7 +371,7 @@ private fun TwitchApp() {
                             onRefresh={if(isFollowing) refreshFollowing() else {pageJob?.cancel();pager.reset();loadMore()}},
                             guestLimited=!authState.loggedIn && route.kind in setOf("streams","category","categories","channel","clips"),
                             revision=page.revision + catalogEntryGeneration,
-                            previewEnabled=settings.cardPreviewEnabled, resolvePreview={ repository.resolveLive(it.login) },
+                            previewEnabled=settings.cardPreviewEnabled, resolvePreview={ liveSources.preview(it.login) },
                             allowFocusRestore=(!railOwnsFocus || !userNavigated) && (route.kind!="search" || route.value.isNotBlank()),
                             onChannelDetails={navigate(Route("channel",it.login,it.name))})
                     } } }
@@ -406,7 +416,7 @@ private fun TwitchApp() {
     }
 }
 
-@Composable private fun Viewing(target:Watching,repository:TwitchRepository,store:SettingsStore,onBack:()->Unit,
+@Composable private fun Viewing(target:Watching,repository:TwitchRepository,store:SettingsStore,resolveLive:suspend (String,Boolean)->String,onBack:()->Unit,
     onControlsVisibleChanged:(Boolean)->Unit) {
     val context=LocalContext.current
     val session=remember { PlaybackSession(context) }
@@ -462,7 +472,11 @@ private fun TwitchApp() {
         resolving=true;error=null
         try {
             val variants = if(target.kind=="clip") repository.resolveClipVariants(target.id) else emptyList()
-            val url=when(target.kind) { "live"->repository.resolveLive(target.id);"clip"->variants.first().url;else->repository.resolveVideo(target.id) }
+            val url = when (target.kind) {
+                "live" -> resolveLive(target.id, retry == 0)
+                "clip" -> variants.first().url
+                else -> repository.resolveVideo(target.id)
+            }
             session.play(url,"${target.kind}:${target.id}",target.kind=="live",positions.read(target.kind,target.id),
                 requestStartedAtMs=requestStartedAtMs, progressiveVariants=variants)
             if(!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))session.onBackground()
@@ -515,7 +529,7 @@ private fun TwitchApp() {
 @Composable private fun UpdateControls(updater:UpdateManager) {
     val state by updater.state.collectAsStateWithLifecycle()
     val scope=rememberCoroutineScope()
-    val activity=LocalContext.current as android.app.Activity
+    val activity=checkNotNull(LocalActivity.current)
     val prefs=remember { activity.getSharedPreferences("updates",android.content.Context.MODE_PRIVATE) }
     var testChannel by remember { mutableStateOf(prefs.getBoolean("testChannel",true)) }
     val first=remember { FocusRequester() }

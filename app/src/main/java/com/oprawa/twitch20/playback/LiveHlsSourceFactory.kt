@@ -13,6 +13,7 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.ParsingLoadable
 import java.util.IdentityHashMap
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -41,7 +42,7 @@ internal class LiveHlsSourceFactory(private val delegate: MediaSource.Factory,
 @androidx.annotation.OptIn(UnstableApi::class)
 private class RegressedPlaylistPolicy {
     private val observations = ConcurrentHashMap<Uri, LivePlaylistProgressGuard>()
-    private val logged = ConcurrentHashMap.newKeySet<Uri>()
+    private val logged = Collections.newSetFromMap(ConcurrentHashMap<Uri, Boolean>())
 
     private fun defer(uri: Uri): Boolean = observations[uri]?.shouldDefer(SystemClock.elapsedRealtime()) == true
 
