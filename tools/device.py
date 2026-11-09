@@ -21,7 +21,13 @@ def hierarchy():
                 if time.monotonic()>=deadline:raise TimeoutError('UI observation lock busy')
                 time.sleep(.1)
         try:
-            adb('shell','uiautomator','dump','/sdcard/window.xml',stdout=subprocess.DEVNULL)
+            # UI Automator can return exit 0 with "null root node" during app launch.
+            # Never read the previous screen's XML after a failed dump.
+            for attempt in range(3):
+                dumped=adb('shell','uiautomator','dump','/sdcard/window.xml',capture_output=True)
+                if b'dumped to:' in dumped.stdout:break
+                if attempt==2:raise RuntimeError('UI hierarchy unavailable after three attempts')
+                time.sleep(.2)
             return adb('exec-out','cat','/sdcard/window.xml',capture_output=True).stdout
         finally:
             lock.seek(0);msvcrt.locking(lock.fileno(),msvcrt.LK_UNLCK,1)
