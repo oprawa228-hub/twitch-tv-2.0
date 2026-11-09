@@ -124,4 +124,18 @@ class SettingsProfilesTest {
             theaterStyle = ChatStyle(22, .1f))
         assertEquals(settings, SettingsCodec.decode(SettingsCodec.encode(settings)))
     }
+
+    @Test fun notificationToggleMigratesEnabledAndPersistsWithoutChangingProfiles() {
+        val legacy = mapOf("activeChatMode" to "THEATER", "overlayTextSizeSp" to 17,
+            "overlayOpacity" to .35f, "theaterTextSizeSp" to 20, "showClock" to false)
+        val initial = SettingsCodec.decode(legacy)
+        assertTrue(initial.followNotificationsEnabled)
+        val changed = initial.copy(followNotificationsEnabled = false)
+        val reopened = SettingsCodec.decode(SettingsCodec.encode(changed))
+        assertEquals(changed, reopened)
+        assertEquals(initial.overlayStyle, reopened.overlayStyle)
+        assertEquals(initial.theaterStyle, reopened.theaterStyle)
+        assertEquals(ChatMode.THEATER, reopened.chatMode)
+        assertFalse(reopened.showClock)
+    }
 }

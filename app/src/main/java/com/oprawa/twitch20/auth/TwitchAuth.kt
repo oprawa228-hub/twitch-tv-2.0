@@ -63,6 +63,7 @@ class TwitchAuth(context: Context, private val clientId: String) {
     private val closed = AtomicBoolean(false)
     private var session: StoredSession? = null
     private var loaded = false
+    private val profileImages = linkedMapOf<String, Pair<String, Long>>()
     private val mutableState = MutableStateFlow(AuthState())
     val state: StateFlow<AuthState> = mutableState.asStateFlow()
 
@@ -177,7 +178,39 @@ class TwitchAuth(context: Context, private val clientId: String) {
             val latest = load() ?: throw AuthException("Войдите в Twitch снова.")
             val live = followedPages("streams/followed", "user_id", latest, epoch)
             requireCurrent(epoch)
-            FollowedCatalog.merge(followed, live)
+            val channels = FollowedCatalog.merge(followed, live)
+            refreshLiveAvatars(channels.filter { it.live }.map { it.id }, epoch)
+            requireCurrent(epoch)
+            channels.map { it.copy(avatarUrl = profileImages[it.id]?.first.orEmpty()) }
+        }
+    }
+
+    /** Optional public metadata, fetched in batches and cached; never hides a valid follow list. */
+    private suspend fun refreshLiveAvatars(ids: List<String>, epoch: Long) {
+        val now = SystemClock.elapsedRealtime()
+        val missing = ids.filter { now - (profileImages[it]?.second ?: -21_600_000L) >= 21_600_000L }
+        for (batch in missing.chunked(100)) {
+            try {
+                var current = load() ?: return
+                val url = "https://api.twitch.tv/helix/users".toHttpUrl().newBuilder()
+                    .apply { batch.forEach { addQueryParameter("id", it) } }.build()
+                var response = get(url.toString(), current.accessToken, helix = true)
+                requireCurrent(epoch)
+                if (response.status == 401) {
+                    current = refresh(current, epoch)
+                    response = get(url.toString(), current.accessToken, helix = true)
+                    requireCurrent(epoch)
+                }
+                if (response.status != 200) return
+                val rows = response.json.optJSONArray("data") ?: return
+                for (i in 0 until rows.length()) {
+                    val row = rows.optJSONObject(i) ?: continue
+                    val id = row.optString("id")
+                    if (id in batch) profileImages[id] = row.optString("profile_image_url") to now
+                }
+                while (profileImages.size > 2_000) profileImages.remove(profileImages.keys.first())
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) { return }
         }
     }
 
@@ -436,6 +469,7 @@ internal object FollowedCatalog {
         text(item, "title"), text(item, "game_name"),
         text(item, "thumbnail_url").replace("{width}", "640").replace("{height}", "360"),
         item.optInt("viewer_count", 0).coerceAtLeast(0), true,
+        liveStreamId = text(item, "id"),
     )
 
     private fun text(item: JSONObject, key: String): String = if (item.isNull(key)) "" else item.optString(key, "")

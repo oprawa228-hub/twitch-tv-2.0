@@ -36,6 +36,7 @@ class HelixCatalogRepository(
                 imageUrl = thumbnail(TwitchJson.text(stream, "thumbnail_url"), 640, 360),
                 viewers = HelixCatalogJson.count(stream, "viewer_count"),
                 live = true,
+                liveStreamId = TwitchJson.text(stream, "id"),
             )
         }
     }
@@ -62,7 +63,35 @@ class HelixCatalogRepository(
             live?.let { TwitchJson.text(it, "game_name") }.orEmpty(),
             if (live == null) TwitchJson.text(user, "profile_image_url")
                 else thumbnail(TwitchJson.text(live, "thumbnail_url"), 640, 360),
-            live?.let { HelixCatalogJson.count(it, "viewer_count") } ?: 0, live != null, avatarUrl = TwitchJson.text(user, "profile_image_url"))
+            live?.let { HelixCatalogJson.count(it, "viewer_count") } ?: 0, live != null,
+            avatarUrl = TwitchJson.text(user, "profile_image_url"),
+            liveStreamId = live?.let { TwitchJson.text(it, "id") }.orEmpty())
+    }
+
+    /** Progressive recent feed: three latest broadcasts per followed channel, six channels/page.
+     * The caller keeps its channel snapshot stable for a pagination session. Channel archives
+     * remain available from channel details; this feed does not claim a global time ordering.
+     */
+    suspend fun recordingsPage(channels: List<Channel>, after: String? = null): CatalogPage<Video> {
+        val offset = after?.toIntOrNull() ?: if (after == null) 0 else throw TwitchException(TwitchError.SERVICE)
+        if (offset < 0 || offset > channels.size) throw TwitchException(TwitchError.SERVICE)
+        val rows = mutableListOf<Pair<String, Video>>()
+        val batch = channels.drop(offset).take(6)
+        for (channel in batch) {
+            val response = get("videos", mapOf("user_id" to channel.id, "first" to "3", "sort" to "time", "type" to "archive"))
+            val page = HelixCatalogJson.page(response) { video ->
+                TwitchJson.text(video, "published_at") to Video(
+                    HelixCatalogJson.required(video, "id"), TwitchJson.text(video, "title"),
+                    thumbnail(TwitchJson.text(video, "thumbnail_url"), 320, 180),
+                    HelixCatalogJson.durationSeconds(HelixCatalogJson.required(video, "duration")),
+                    "vod", channel.login, HelixCatalogJson.count(video, "view_count"),
+                )
+            }
+            rows += page.items
+        }
+        val end = offset + batch.size
+        return CatalogPage(rows.sortedByDescending { it.first }.map { it.second }.distinctBy { it.id },
+            end.takeIf { it < channels.size }?.toString())
     }
 
     suspend fun videosPage(login: String, after: String? = null): CatalogPage<Video> {

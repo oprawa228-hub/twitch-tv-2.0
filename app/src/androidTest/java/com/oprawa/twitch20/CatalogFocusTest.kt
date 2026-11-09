@@ -1,6 +1,7 @@
 package com.oprawa.twitch20
 
 import android.os.SystemClock
+import android.graphics.Rect
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
@@ -12,6 +13,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.test.core.app.ActivityScenario
@@ -80,7 +82,7 @@ class CatalogFocusTest {
             }
             fixture.publish(channels = longPage)
             assertTrue(device.wait(Until.hasObject(By.focused(true).descStartsWith("Fixture item7,")), 5_000))
-            val originalTop = device.findObject(By.focused(true))!!.visibleBounds.top
+            val originalTop = awaitStableCardBounds("Fixture item7,").top
             assertFalse("Account must be nested in Settings", device.hasObject(By.desc("Аккаунт")))
             assertFalse("About must be nested in Settings", device.hasObject(By.desc("О приложении")))
             // Item 7 is in the first column for both 3- and 2-column accessibility layouts.
@@ -96,7 +98,7 @@ class CatalogFocusTest {
             assertTrue("Back did not restore the selected card",
                 device.wait(Until.hasObject(By.focused(true).descStartsWith("Fixture item7,")), 5_000))
             assertEquals("Back moved the original grid row", originalTop,
-                device.findObject(By.focused(true))!!.visibleBounds.top)
+                awaitStableCardBounds("Fixture item7,").top)
         }
 
     private fun withCatalog(selectedKey: String? = null, previewRoutes: Boolean = false, check: (Fixture) -> Unit) {
@@ -105,6 +107,7 @@ class CatalogFocusTest {
             scenario.onActivity { activity ->
                 activity.setContent {
                     TwitchTheme {
+                        val routeState = rememberSaveableStateHolder()
                         var railOwnsFocus by remember { mutableStateOf(false) }
                         var route by remember { mutableStateOf("streams") }
                         var previewOrigin by remember { mutableStateOf<String?>(null) }
@@ -137,9 +140,9 @@ class CatalogFocusTest {
                                 },
                                 onFocusOwnership = {
                                     railOwnsFocus = it
-                                    if (!it) previewOrigin = null
                                 })
                             Box(Modifier.weight(1f)) {
+                                routeState.SaveableStateProvider(route) {
                                 key(route) {
                                     CatalogScreen(title = if (route == "streams") "Focus fixture" else "Focus fixture · $route",
                                         channels = if (route == "streams") page.channels else page.channels.map {
@@ -150,6 +153,7 @@ class CatalogFocusTest {
                                         onFocused = { if (route == "streams") fixture.selected.value = it },
                                         allowFocusRestore = !railOwnsFocus || !userNavigated,
                                         onChannel = {}, onCategory = {}, onVideo = {}, onRetry = {})
+                                }
                                 }
                             }
                         }
@@ -164,15 +168,38 @@ class CatalogFocusTest {
     private fun focusCategoriesInRail() {
         // During the pending initial result the only focusable controls are real rail items.
         repeat(8) {
-            if (focusedRailDescription() == "Эфиры") return@repeat
+            if (focusedRailDescription() == "Поиск") return@repeat
             device.pressDPadUp()
             device.waitForIdle(500)
         }
         assertTrue("Could not reach the first rail item using the remote",
-            focusedRailDescription() == "Эфиры")
+            focusedRailDescription() == "Поиск")
+        device.pressDPadDown()
         device.pressDPadDown()
         device.pressDPadDown()
         awaitRailFocus("Категории")
+    }
+
+    private fun awaitStableCardBounds(descriptionPrefix: String): Rect {
+        val deadline = SystemClock.elapsedRealtime() + 5_000
+        var previous: Rect? = null
+        var stableSince = 0L
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val focused = device.findObject(By.focused(true).descStartsWith(descriptionPrefix))
+            // Focus is reported before the 208 -> 84 dp rail remeasure and bring-into-view finish.
+            // Compare only the same final layout state, without relaxing the exact row assertion.
+            val collapsed = !device.hasObject(By.text("Поиск"))
+            val bounds = focused?.visibleBounds
+            val now = SystemClock.elapsedRealtime()
+            if (collapsed && bounds != null && bounds == previous) {
+                if (now - stableSince >= 400) return Rect(bounds)
+            } else {
+                previous = bounds?.let(::Rect)
+                stableSince = now
+            }
+            SystemClock.sleep(40)
+        }
+        throw AssertionError("Card layout did not settle after rail collapse: $descriptionPrefix, $previous")
     }
 
     private fun awaitRailFocus(description: String) {
@@ -229,6 +256,6 @@ class CatalogFocusTest {
         val channels = listOf("first", "second", "third").map {
             Channel(it, it, "Fixture $it", "Focus restoration fixture", "Test", "")
         }
-        val railDescriptions = setOf("Эфиры", "Поиск", "Категории", "Отслеживаемые", "Настройки")
+        val railDescriptions = setOf("Поиск", "Каналы", "Записи", "Категории", "Рекомендации", "Настройки")
     }
 }

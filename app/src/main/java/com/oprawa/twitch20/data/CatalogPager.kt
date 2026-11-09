@@ -19,6 +19,7 @@ data class CatalogPageState<T>(
 class CatalogPager<T>(
     private val identity: (T) -> String,
     private val maxItems: Int = 1000,
+    private val allowEmptyPageProgress: Boolean = false,
     private val fetch: suspend (String?) -> CatalogPage<T>,
 ) {
     private val mutableState = MutableStateFlow(CatalogPageState<T>())
@@ -63,7 +64,10 @@ class CatalogPager<T>(
                 if (next == null || rows.size > original.size) break
                 // Helix may return an empty/duplicate-only page with a continuation.
                 // Scan a bounded number, then retain the original retry position.
-                if (scanned >= 3) throw TwitchException(TwitchError.SERVICE)
+                if (scanned >= 3) {
+                    if (allowEmptyPageProgress) break
+                    throw TwitchException(TwitchError.SERVICE)
+                }
                 after = next
             }
             synchronized(gate) {

@@ -12,8 +12,10 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +29,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,6 +47,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -51,14 +55,20 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.oprawa.twitch20.chat.ChatMessage
+import com.oprawa.twitch20.BuildConfig
+import com.oprawa.twitch20.data.Channel
 import com.oprawa.twitch20.settings.AppSettings
 import com.oprawa.twitch20.settings.ChatMode
 import com.oprawa.twitch20.settings.ChatPosition
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun SettingsScreen(
@@ -83,24 +93,45 @@ fun SettingsScreen(
             }
         }
         Column(Modifier.weight(.59f).fillMaxHeight().padding(top = 4.dp).verticalScroll(rememberScrollState())) {
-            val shownMode = when (editor.page) {
-                SettingsEditorPage.OVERLAY -> ChatMode.OVERLAY
-                SettingsEditorPage.THEATER -> ChatMode.THEATER
-                SettingsEditorPage.CLOCK -> ChatMode.OFF
-                else -> settings.chatMode
-            }
-            val title = when (editor.page) {
-                SettingsEditorPage.OVERVIEW -> "Ваш эфир"
-                SettingsEditorPage.INTERFACE -> "Интерфейс"
-                SettingsEditorPage.CLOCK -> "Часы"
-                else -> chatModeLabel(shownMode)
+            val target = editor.previewTarget()
+            val title = when (target) {
+                SettingsPreviewTarget.CATALOG -> "Предпросмотр эфиров"
+                SettingsPreviewTarget.ANIMATIONS -> "Анимации"
+                SettingsPreviewTarget.CLOCK -> "Часы"
+                SettingsPreviewTarget.NOTIFICATIONS -> "Новый эфир"
+                SettingsPreviewTarget.ACCOUNT -> "Аккаунт Twitch"
+                SettingsPreviewTarget.ABOUT -> "Twitch 2.0"
+                SettingsPreviewTarget.OVERLAY -> "Чат поверх видео"
+                SettingsPreviewTarget.THEATER -> "Кинотеатр"
             }
             Text(title, color = TvColors.Text, fontSize = 21.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 16.dp))
-            SettingsPreview((transientPreview ?: settings).copy(chatMode = shownMode))
-            if (editor.page in listOf(SettingsEditorPage.OVERLAY, SettingsEditorPage.THEATER) && shownMode != settings.chatMode) {
-                Text("Профиль выключен", color = TvColors.Muted, fontSize = 14.sp,
-                    modifier = Modifier.padding(top = 12.dp))
+            val preview = transientPreview ?: settings
+            when (target) {
+                SettingsPreviewTarget.CATALOG, SettingsPreviewTarget.CLOCK -> {
+                    CatalogSettingsPreview(preview, demonstrateCards = target == SettingsPreviewTarget.CATALOG)
+                }
+                SettingsPreviewTarget.ANIMATIONS -> {
+                    SettingsPreview(preview.copy(chatMode = ChatMode.OFF))
+                    Text(if (preview.animationsEnabled) "Движение интерфейса и примеров включено" else "Интерфейс и примеры без анимации. Видео продолжает воспроизводиться.",
+                        color = TvColors.Muted, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 12.dp))
+                }
+                SettingsPreviewTarget.OVERLAY, SettingsPreviewTarget.THEATER -> {
+                    val mode = if (target == SettingsPreviewTarget.OVERLAY) ChatMode.OVERLAY else ChatMode.THEATER
+                    val profile = preview.copy(chatMode = mode)
+                    SettingsPreview(profile)
+                    Text("Текст в плеере", color = TvColors.Muted, fontSize = 13.sp,
+                        modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+                    ChatPanel(listOf(ChatMessage("native-size", "Nova", "Заряжай сердечки!", "#bf94ff")),
+                        profile.copy(animationsEnabled = false), Modifier.fillMaxWidth().height(64.dp))
+                    if (mode != settings.chatMode) Text("Профиль выключен", color = TvColors.Muted, fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 8.dp))
+                }
+                SettingsPreviewTarget.NOTIFICATIONS -> NotificationSettingsPreview(preview)
+                SettingsPreviewTarget.ACCOUNT -> Text("Вход и управление подключением к Twitch", color = TvColors.Muted,
+                    fontSize = 17.sp, lineHeight = 25.sp)
+                SettingsPreviewTarget.ABOUT -> Text("${BuildConfig.VERSION_NAME}\nОбновления, авторы и лицензии", color = TvColors.Muted,
+                    fontSize = 17.sp, lineHeight = 25.sp)
             }
         }
     }
@@ -168,6 +199,7 @@ internal fun SettingsPageLink(label: String, modifier: Modifier = Modifier,
 
 @Composable
 private fun SettingsPreview(settings: AppSettings) {
+    val clock = rememberSettingsPreviewClock(settings.showClock)
     var tick by remember { mutableIntStateOf(0) }
     val motionEnabled = rememberPreviewMotionEnabled(settings.animationsEnabled)
     // This coroutine is cancelled when the example leaves composition.
@@ -220,13 +252,132 @@ private fun SettingsPreview(settings: AppSettings) {
             if (settings.showClock) {
                 val clockAlignment = Alignment.TopEnd
                 Box(Modifier.fillMaxHeight().fillMaxWidth(if (theater) 1f - ChatLayout.theaterWidthFraction else 1f)) {
-                    Text("21:08", color = TvColors.Text, fontSize = 17.sp,
+                    Text(clock, color = TvColors.Text, fontSize = 17.sp,
                         modifier = Modifier.align(clockAlignment).padding(20.dp)
                             .background(TvColors.Background.copy(alpha = .65f), RoundedCornerShape(4.dp)).padding(4.dp))
                 }
             }
             Text("ПРИМЕР", color = TvColors.Text, fontSize = 14.sp,
                 modifier = Modifier.align(Alignment.BottomStart).padding(18.dp)
+                    .background(TvColors.Accent, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
+        }
+    }
+}
+
+@Composable
+private fun rememberSettingsPreviewClock(enabled: Boolean): String {
+    var clock by remember { mutableStateOf("") }
+    LaunchedEffect(enabled) {
+        while (enabled) {
+            clock = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+            delay(15_000)
+        }
+    }
+    return clock
+}
+
+/** An explanatory catalog crop: same card aspect, typography and focus colors, no remote media. */
+@Composable
+private fun CatalogSettingsPreview(settings: AppSettings, demonstrateCards: Boolean) {
+    val clock = rememberSettingsPreviewClock(settings.showClock)
+    val motionEnabled = rememberPreviewMotionEnabled(settings.animationsEnabled)
+    val largeText = LocalDensity.current.fontScale > 1.25f
+    val columns = if (largeText) 2 else 3
+    var previewReady by remember { mutableStateOf(false) }
+    LaunchedEffect(settings.cardPreviewEnabled, demonstrateCards) {
+        previewReady = false
+        if (settings.cardPreviewEnabled && demonstrateCards) {
+            delay(700)
+            previewReady = true
+        }
+    }
+    SettingsExampleStage {
+        Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Прямые эфиры", fontSize = 25.sp, fontWeight = FontWeight.Bold, color = TvColors.Text,
+                    modifier = Modifier.weight(1f))
+                if (settings.showClock) Text(clock, fontSize = 16.sp, color = TvColors.Muted)
+            }
+            repeat(if (largeText) 1 else 2) { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    repeat(columns) { column ->
+                        val first = row == 0 && column == 0
+                        val index = row * columns + column
+                        Column(Modifier.weight(1f).clip(TvShapes.Control)
+                            .background(TvColors.Surface)
+                            .border(2.dp, if (first) TvColors.Focus else Color.Transparent, TvShapes.Control)) {
+                            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp))) {
+                                if (first) PreviewScene(animationsEnabled = previewReady && motionEnabled,
+                                    modifier = Modifier.fillMaxSize())
+                                else Box(Modifier.fillMaxSize().background(listOf(
+                                    Color(0xFF343051), Color(0xFF253E49), Color(0xFF453848))[index % 3]))
+                                Box(Modifier.align(Alignment.TopStart).padding(8.dp).size(9.dp)
+                                    .background(TvColors.Live, CircleShape))
+                                Text(listOf("242", "188", "156", "96", "82", "74")[index], color = TvColors.Text,
+                                    fontSize = 11.sp, modifier = Modifier.align(Alignment.BottomStart).padding(8.dp)
+                                        .background(TvColors.Background.copy(alpha = .75f), RoundedCornerShape(3.dp)).padding(3.dp))
+                            }
+                            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(listOf("Дядя на танке", "Nova", "Pixel", "Luna", "Orbit", "Tank")[index],
+                                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = TvColors.Text, maxLines = 1)
+                                Text(if (first) "Заряжай сердечки!" else "Встречаемся в эфире", fontSize = 12.sp,
+                                    color = TvColors.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(if (first) "Мир Танков" else "Общение", fontSize = 11.sp, color = TvColors.Muted)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Text(when {
+        !demonstrateCards -> "На главной и в плеере"
+        !settings.cardPreviewEnabled -> "Карточки остаются неподвижными"
+        !motionEnabled -> "Предпросмотр включён; движение примера отключено"
+        else -> "Видео в выделенной карточке · без звука"
+    }, color = TvColors.Muted, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 12.dp))
+}
+
+@Composable
+private fun NotificationSettingsPreview(settings: AppSettings) {
+    val motionEnabled = rememberPreviewMotionEnabled(settings.animationsEnabled)
+    var visible by remember { mutableStateOf(settings.followNotificationsEnabled) }
+    LaunchedEffect(settings.followNotificationsEnabled, motionEnabled) {
+        visible = settings.followNotificationsEnabled
+        if (visible && motionEnabled) while (true) {
+            delay(4_500)
+            visible = false
+            delay(1_700)
+            visible = true
+        }
+    }
+    SettingsExampleStage {
+        // A repeating illustration must not announce itself as a real new live event.
+        Box(Modifier.fillMaxSize().clearAndSetSemantics {
+            contentDescription = if (settings.followNotificationsEnabled) "Пример уведомления: Дядя на танке в эфире"
+                else "Уведомления о новых эфирах скрыты"
+        }) {
+            PreviewScene(animationsEnabled = settings.animationsEnabled, modifier = Modifier.fillMaxSize())
+            if (visible) LiveNotificationBanner(Channel(id = "settings-example", login = "settings_example",
+                name = "Дядя на танке", title = "Заряжай сердечки!", category = "Мир Танков", imageUrl = ""),
+                Modifier.align(Alignment.TopCenter).padding(24.dp))
+        }
+    }
+    Text(if (settings.followNotificationsEnabled) "Когда отслеживаемый канал начинает эфир. Нужен вход в Twitch."
+        else "Уведомления о новых эфирах скрыты", color = TvColors.Muted, fontSize = 14.sp, lineHeight = 20.sp,
+        modifier = Modifier.padding(top = 12.dp))
+}
+
+@Composable
+private fun SettingsExampleStage(content: @Composable BoxScope.() -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+        .clip(RoundedCornerShape(8.dp)).border(1.dp, TvColors.Raised, RoundedCornerShape(8.dp))) {
+        val factor = maxWidth.value / 960f
+        Box(Modifier.requiredSize(960.dp, 540.dp).graphicsLayer { scaleX = factor; scaleY = factor }
+            .background(TvColors.Background)) {
+            content()
+            Text("ПРИМЕР", color = TvColors.Text, fontSize = 14.sp,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp)
                     .background(TvColors.Accent, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
         }
     }

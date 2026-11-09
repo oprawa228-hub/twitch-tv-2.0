@@ -22,7 +22,14 @@ internal fun positionLabel(position: ChatPosition): String = when (position) {
 }
 
 private val opacityPresets = listOf("Лёгкий" to .25f, "Средний" to .65f, "Плотный" to .90f)
-internal fun opacityLabel(opacity: Float): String = opacityPresets.firstOrNull { it.second == opacity }?.first ?: "Свой вариант"
+internal fun opacityLabel(opacity: Float): String = opacityPresets.firstOrNull { it.second == opacity }?.first ?: when {
+    opacity <= 0f -> "Прозрачный"
+    opacity < .25f -> "Едва заметный"
+    opacity < .65f -> "Полупрозрачный"
+    opacity < .90f -> "Насыщенный"
+    opacity < 1f -> "Почти непрозрачный"
+    else -> "Непрозрачный"
+}
 
 /** Focus never persists settings or switches the active chat presentation. */
 internal data class SettingsSelection(
@@ -47,8 +54,8 @@ internal data class SettingsSelection(
         SettingsChoice.OPACITY -> {
             val current = original.overlayStyle.opacity
             val values = if (opacityPresets.any { it.second == current }) opacityPresets
-                else opacityPresets + ("Свой вариант" to current)
-            values.map { (label, alpha) -> SettingsOption(label, original.withStyle(ChatMode.OVERLAY,
+                else opacityPresets + (opacityLabel(current) to current)
+            values.sortedBy { it.second }.map { (label, alpha) -> SettingsOption(label, original.withStyle(ChatMode.OVERLAY,
                 original.overlayStyle.copy(opacity = alpha))) }
         }
         SettingsChoice.POSITION -> ChatPosition.entries.map { position ->

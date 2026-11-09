@@ -5,6 +5,7 @@ import android.view.ViewConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -30,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -121,6 +123,11 @@ fun CatalogScreen(
     }
     val keys = entries.map { it.key }
     val state = rememberLazyGridState()
+    // The expanding rail remeasures card heights while this catalog is unfocused.
+    // Keep the last browsing viewport separately from LazyGrid's live scroll anchor.
+    var suspendedIndex by rememberSaveable { mutableStateOf(-1) }
+    var suspendedOffset by rememberSaveable { mutableStateOf(0) }
+    var gridHasFocus by remember { mutableStateOf(false) }
     val requesters = remember { mutableMapOf<String, FocusRequester>() }
     keys.forEach { requesters.getOrPut(it) { FocusRequester() } }
     val emptyRequester = remember { FocusRequester() }
@@ -129,6 +136,18 @@ fun CatalogScreen(
     val focusedChannel = channels.firstOrNull { "channel:${it.id}" == focusedEntryKey }
     val preview = rememberCatalogVideoPreview(focusedChannel, previewEnabled,
         state.isScrollInProgress, resolvePreview)
+
+    LaunchedEffect(gridHasFocus) {
+        if (gridHasFocus && suspendedIndex >= 0) {
+            // Requesting a card first moves focus out of the rail. Its collapsed width
+            // must be measured before restoring the viewport, otherwise bring-into-view
+            // retains an offset calculated for the narrower preview grid.
+            withFrameNanos { }
+            withFrameNanos { }
+            state.scrollToItem(suspendedIndex, suspendedOffset)
+            suspendedIndex = -1
+        }
+    }
 
     LaunchedEffect(selectedKey, entries.size, hasMore, busy, error) {
         if (hasMore && !busy && error == null && entries.isNotEmpty() &&
@@ -186,12 +205,15 @@ fun CatalogScreen(
         if (entries.isEmpty()) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(when { busy -> "Загружаем…"; error != null -> error; else -> "Здесь пока ничего нет" },
+                Text(when { busy -> "Загружаем…"; error != null -> error;
+                    hasMore -> "В этой части списка записей нет"; else -> "Здесь пока ничего нет" },
                     color = if (error == null) TvColors.Muted else TvColors.Error,
                     fontSize = 18.sp, modifier = Modifier.padding(horizontal = 32.dp), maxLines = 4)
                 if (!busy) {
                     Spacer(Modifier.height(20.dp))
-                    TvAction(if (error != null) "Повторить" else "Обновить", onRetry, Modifier.focusRequester(emptyRequester))
+                    TvAction(when { error != null -> "Повторить"; hasMore -> "Искать дальше"; else -> "Обновить" },
+                        if (error == null && hasMore) onLoadMore else onRetry,
+                        Modifier.focusRequester(emptyRequester))
                 }
             }
         } else {
@@ -211,7 +233,14 @@ fun CatalogScreen(
             LazyVerticalGrid(columns = GridCells.Fixed(columns), state = state,
                 contentPadding = PaddingValues(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
+                verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()
+                    .onFocusChanged { focus ->
+                        if (gridHasFocus && !focus.hasFocus) {
+                            suspendedIndex = state.firstVisibleItemIndex
+                            suspendedOffset = state.firstVisibleItemScrollOffset
+                        }
+                        gridHasFocus = focus.hasFocus
+                    }.focusGroup()) {
                 items(entries, key = { it.key }) { entry ->
                     CatalogCard(entry, imageHeight, requesters.getValue(entry.key), onFocused,
                         preview?.takeIf { "channel:${it.channelId}" == entry.key }) { hasFocus ->

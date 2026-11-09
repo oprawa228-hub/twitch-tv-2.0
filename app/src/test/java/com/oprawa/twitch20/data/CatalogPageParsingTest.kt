@@ -48,7 +48,7 @@ class CatalogPageParsingTest {
         assertEquals("category-1", calls[1].second["game_id"])
         assertEquals("next+/=", calls[1].second["after"])
         assertEquals("30", calls[1].second["first"])
-        assertEquals(Channel("user-1", "example", "Example", "Live title", "Game", "https://example.test/640x360.jpg", 52, true), first.items.single())
+        assertEquals(Channel("user-1", "example", "Example", "Live title", "Game", "https://example.test/640x360.jpg", 52, true, liveStreamId = "stream-9"), first.items.single())
     }
 
     @Test fun globalStreamsOmitCategoryFilter() = runTest {

@@ -135,4 +135,22 @@ class CatalogPagerTest {
         assertNotNull(pager.state.value.error)
         assertTrue(pager.state.value.items.isEmpty())
     }
+
+    @Test fun localFollowBatchesCanContinueBeyondEmptyChannelsWithoutAnInfiniteRequest() = runTest {
+        val cursors = mutableListOf<String?>()
+        val pager = CatalogPager<Item>({ it.id }, allowEmptyPageProgress = true) { cursor ->
+            cursors += cursor
+            val offset = cursor?.toInt() ?: 0
+            if (offset < 3) CatalogPage(emptyList(), "${offset + 1}")
+            else CatalogPage(listOf(Item("archive")), null)
+        }
+        pager.loadNext()
+        assertEquals(listOf(null, "1", "2"), cursors)
+        assertTrue(pager.state.value.initialized)
+        assertTrue(pager.state.value.hasMore)
+        assertNull(pager.state.value.error)
+        pager.loadNext()
+        assertEquals(listOf(Item("archive")), pager.state.value.items)
+        assertFalse(pager.state.value.hasMore)
+    }
 }

@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.Alignment
@@ -104,6 +105,7 @@ fun PlayerScreen(
     onSettingsChange: (AppSettings) -> Unit = {},
     onChatPreview: (Boolean?) -> Unit = {},
     onRetry: () -> Unit = { session.retry() },
+    onControlsVisibleChanged: (Boolean) -> Unit = {},
 ) {
     val state by session.state.collectAsStateWithLifecycle()
     var hudVisible by remember(session) { mutableStateOf(true) }
@@ -146,6 +148,11 @@ fun PlayerScreen(
     }
     DisposableEffect(Unit) { onDispose { onChatPreview(null) } }
     val panelOpen = qualityOpen || chatSettingsOpen
+    val reportControls by rememberUpdatedState(onControlsVisibleChanged)
+    LaunchedEffect(hudVisible, panelOpen, state.status == PlaybackStatus.Error) {
+        reportControls(hudVisible || panelOpen || state.status == PlaybackStatus.Error)
+    }
+    DisposableEffect(session) { onDispose { reportControls(false) } }
     var clockText by remember { mutableStateOf("") }
     LaunchedEffect(effectiveSettings.showClock) {
         if (effectiveSettings.showClock) while (true) {
@@ -370,7 +377,7 @@ fun PlayerScreen(
                             onFocused={ focusCaption="Вперёд на 10 секунд" }) { session.seekBy(10_000) }
                         Spacer(Modifier.weight(1f))
                         PlayerAction("Качество", Modifier.focusRequester(qualityFocus), icon=PlayerGlyph.QUALITY, badge=state.activeQuality.ifBlank { "Авто" },
-                            onFocused={ focusCaption="Качество · ${state.activeQuality.ifBlank { "Авто" }}" }) { qualityOpen=true }
+                            onFocused={ focusCaption="Качество" }) { qualityOpen=true }
                         if (chatContent != null) {
                             PlayerAction(if(settings.overlayEnabled) "Чат: вкл" else "Чат: выкл",
                                 Modifier.focusRequester(chatFocus), active=settings.overlayEnabled, icon=PlayerGlyph.CHAT,
@@ -386,14 +393,18 @@ fun PlayerScreen(
                             }
                         }
                         PlayerAction("Часы", Modifier.focusRequester(clockFocus), icon=PlayerGlyph.CLOCK, active=settings.showClock,
-                            onFocused={ focusCaption="Часы · ${if(settings.showClock) "показаны" else "скрыты"} · Удерживайте OK для настройки" },
+                            onFocused={ focusCaption="Часы" },
                             onLongClick={ pending -> swallowedKey=pending; openProfile(SettingsEditorPage.CLOCK,"clock") }) {
                             onSettingsChange(settings.copy(showClock=!settings.showClock))
                         }
                     }
                     Text(if(timelineFocused) {
                         if(seek.active) "OK — перейти к ${timeText(seek.targetMs ?: state.positionMs)}" else "Перемотка"
-                    } else focusCaption, color=PlayerText, fontSize=12.sp, maxLines=1,
+                    } else when (focusCaption) {
+                        "Качество" -> "Качество · ${state.activeQuality.ifBlank { "Авто" }}"
+                        "Часы" -> "Часы · ${if(settings.showClock) "показаны" else "скрыты"} · Удерживайте OK для настройки"
+                        else -> focusCaption
+                    }, color=PlayerText, fontSize=12.sp, maxLines=1,
                         overflow=TextOverflow.Ellipsis, textAlign=TextAlign.Center, modifier=Modifier.fillMaxWidth().heightIn(min=18.dp))
                 }
             }
@@ -496,7 +507,7 @@ private fun PlayerAction(label: String, modifier: Modifier = Modifier,
     var focused by remember { mutableStateOf(false) }
     var longTriggered by remember { mutableStateOf(false) }
     LaunchedEffect(focused, label) { if(focused) onFocused() }
-    Box(modifier.then(if(icon!=null) Modifier.width(if(badge!=null) 72.dp else if(prominent) 56.dp else 44.dp).height(if(prominent) 56.dp else 44.dp) else Modifier)
+    Box(modifier.then(if(icon!=null) Modifier.size(if(prominent) 56.dp else 44.dp) else Modifier)
         .onFocusChanged { focused = it.isFocused; if(it.isFocused) onFocused(); if (!it.isFocused) longTriggered = false }
         .background(when { focused -> PlayerFocus; active -> TvColors.Accent.copy(alpha = .22f); else -> TvColors.Raised }, TvShapes.Control)
         .border(1.dp, when { focused -> PlayerFocus; active -> TvColors.Link; else -> TvColors.Border }, TvShapes.Control)
@@ -527,8 +538,8 @@ private fun PlayerAction(label: String, modifier: Modifier = Modifier,
             if (badge == null) PlayerGlyph(icon, if(focused) PlayerBackground else PlayerText, prominent)
             else Column(horizontalAlignment=Alignment.CenterHorizontally) {
                 PlayerGlyph(icon, if(focused) PlayerBackground else PlayerText)
-                Text(badge, color=if(focused) PlayerBackground else PlayerText, fontSize=10.sp,
-                    lineHeight=11.sp, fontWeight=FontWeight.Bold, maxLines=1)
+                Text(badge, color=if(focused) PlayerBackground else PlayerText, fontSize=9.sp,
+                    lineHeight=10.sp, fontWeight=FontWeight.Bold, maxLines=1)
             }
             if(active) Box(Modifier.align(Alignment.BottomCenter).padding(bottom=3.dp).width(12.dp).height(3.dp)
                 .background(if(focused) PlayerBackground else TvColors.Link, TvShapes.Control))

@@ -6,12 +6,13 @@ import com.oprawa.twitch20.settings.ChatMode
 /** Named choices are presentation only: existing stored values are never rounded on read. */
 internal enum class TextSizePreset(val sizeSp: Int, val label: String) {
     SMALL(14, "Маленький"),
+    COMPACT(16, "Компактный"),
     MEDIUM(18, "Средний"),
     LARGE(22, "Большой"),
 }
 
 internal fun textSizeLabel(sizeSp: Int): String =
-    TextSizePreset.entries.firstOrNull { it.sizeSp == sizeSp }?.label ?: "Свой размер"
+    TextSizePreset.entries.firstOrNull { it.sizeSp == sizeSp }?.label ?: "Размер $sizeSp"
 
 /** A transient focus preview. Only [confirm] can produce a replacement settings draft. */
 internal data class TextSizeSelection(

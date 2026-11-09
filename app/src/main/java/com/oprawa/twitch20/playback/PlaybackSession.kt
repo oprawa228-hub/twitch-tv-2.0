@@ -6,6 +6,8 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Format
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -17,7 +19,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.DecoderCounters
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.hls.HlsManifest
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylistTracker
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -84,6 +88,10 @@ class PlaybackSession internal constructor(context: Context, dataSourceFactory: 
     private val liveSourceRecovery = LiveSourceRecovery()
     private var sourceRecoveryJob: Job? = null
     private var pendingSourceRecoveryItem: MediaItem? = null
+    private val observeStuck60s = BuildConfig.DEBUG && context.getSharedPreferences("playback-diagnostics", Context.MODE_PRIVATE)
+        .getBoolean("observe_stuck_60s", false)
+    private val recreateSoftwareAvc = BuildConfig.DEBUG && context.getSharedPreferences("playback-diagnostics", Context.MODE_PRIVATE)
+        .getBoolean("recreate_software_avc", false)
     private val debugHls = if (BuildConfig.DEBUG) DebugHlsCorrelation() else null
 
     private val http = OkHttpClient.Builder().apply {
@@ -101,8 +109,11 @@ class PlaybackSession internal constructor(context: Context, dataSourceFactory: 
     }.build()
     private val playbackDataSource = dataSourceFactory ?: OkHttpDataSource.Factory(http)
     private val playbackMediaSourceFactory = DefaultMediaSourceFactory(context.applicationContext)
-        .setDataSourceFactory(playbackDataSource).let { default -> debugHls?.sourceFactory(default, playbackDataSource) ?: default }
-    val player: ExoPlayer = ExoPlayer.Builder(context.applicationContext)
+        .setDataSourceFactory(playbackDataSource).let { default -> LiveHlsSourceFactory(default, playbackDataSource, debugHls, observeStuck60s) }
+    private val renderers = DefaultRenderersFactory(context.applicationContext).apply {
+        setMediaCodecSelector(AvcResolutionCompatibility.selector(includeSoftwareProbe = recreateSoftwareAvc))
+    }
+    val player: ExoPlayer = ExoPlayer.Builder(context.applicationContext, renderers)
         .setMediaSourceFactory(playbackMediaSourceFactory)
         .build().apply {
             setAudioAttributes(AudioAttributes.Builder()
@@ -111,8 +122,16 @@ class PlaybackSession internal constructor(context: Context, dataSourceFactory: 
         }
     // A stopped Activity can retain its owner while another owner is constructed.
     // Session identity belongs to this owner, not to a channel or the default empty ID.
-    private val mediaSession = MediaSession.Builder(context.applicationContext, player)
+    private val sessionPlayer = object : ForwardingPlayer(player) {
+        override fun play() = this@PlaybackSession.resume()
+        override fun pause() = this@PlaybackSession.pause()
+        override fun setPlayWhenReady(playWhenReady: Boolean) {
+            if (playWhenReady) this@PlaybackSession.resume() else this@PlaybackSession.pause()
+        }
+    }
+    private val mediaSession = MediaSession.Builder(context.applicationContext, sessionPlayer)
         .setId(UUID.randomUUID().toString()).build()
+    internal val sessionToken get() = mediaSession.token
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) { publish() }
@@ -185,9 +204,32 @@ class PlaybackSession internal constructor(context: Context, dataSourceFactory: 
     }
 
     init {
+        if (observeStuck60s) Log.i("TwitchPlayback", "debug_stuck_observation enabled=1 coefficient=12 buffering_timeout_ms=90000")
+        if (recreateSoftwareAvc) Log.i("TwitchPlayback", "debug_software_avc_recreate enabled=1")
         player.addListener(listener)
         player.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
             private var videoWindowStartMs = 0L
+
+            override fun onVideoInputFormatChanged(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                format: Format, decoderReuseEvaluation: DecoderReuseEvaluation?) {
+                if (eventTime.windowIndex !in 0 until eventTime.timeline.windowCount) return
+                val id = eventTime.timeline.getWindow(eventTime.windowIndex, Timeline.Window()).mediaItem.mediaId
+                if (id != mutableState.value.mediaId) return
+                // All tracks in an ABR selection can be selected simultaneously. The renderer
+                // input, not the last selected TrackGroup entry, tells us what is playing.
+                Log.i("TwitchPlayback", "video_input width=${format.width} height=${format.height}" +
+                    " fps=${format.frameRate.takeIf { it.isFinite() }?.roundToInt() ?: -1}" +
+                    " reuse_result=${decoderReuseEvaluation?.result ?: -1}" +
+                    " reuse_discard=${decoderReuseEvaluation?.discardReasons ?: 0}")
+                publish()
+            }
+
+            override fun onLoadStarted(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                loadEventInfo: androidx.media3.exoplayer.source.LoadEventInfo,
+                mediaLoadData: androidx.media3.exoplayer.source.MediaLoadData) {
+                if (BuildConfig.DEBUG && mediaLoadData.dataType == C.DATA_TYPE_MANIFEST)
+                    Log.i("TwitchPlayback", "debug_hls_loading ${debugHls?.role(loadEventInfo.uri)}")
+            }
 
             override fun onLoadCompleted(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
                 loadEventInfo: androidx.media3.exoplayer.source.LoadEventInfo,
@@ -441,7 +483,9 @@ class PlaybackSession internal constructor(context: Context, dataSourceFactory: 
         }
         bufferingStartedAtMs = 0L
         metrics.markPreparation(BufferingReason.FOREGROUND, SystemClock.elapsedRealtime())
-        if (mutableState.value.isLive) player.seekToDefaultPosition() else player.seekTo(savedPositionMs)
+        if (mutableState.value.isLive) {
+            if (resumeAfterBackground) seekToAvailableLiveEdge()
+        } else player.seekTo(savedPositionMs)
         player.prepare()
         player.playWhenReady = resumeAfterBackground
     }
@@ -501,13 +545,14 @@ class PlaybackSession internal constructor(context: Context, dataSourceFactory: 
                         " live_offset_ms=${player.currentLiveOffset.takeUnless { it == C.TIME_UNSET } ?: -1}" +
                         " default_position_ms=${defaultPositionMs.takeUnless { it == C.TIME_UNSET } ?: -1}" +
                         " playing=${if (player.isPlaying) 1 else 0} play_requested=${if (player.playWhenReady) 1 else 0}")
+                    debugHls?.primary(player.currentManifest as? HlsManifest)
                 }
             }
         }
         if (!backgrounded && player.playbackState == Player.STATE_BUFFERING) {
             val now = SystemClock.elapsedRealtime()
             if (bufferingStartedAtMs == 0L) bufferingStartedAtMs = now
-            if (now - bufferingStartedAtMs > 45_000) {
+            if (now - bufferingStartedAtMs > if (observeStuck60s) 90_000 else 45_000) {
                 player.stop()
                 mutableState.value = mutableState.value.copy(status = PlaybackStatus.Error,
                     isPlaying = false, error = "Видео не загружается. Проверьте сеть и повторите.")
@@ -526,6 +571,10 @@ class PlaybackSession internal constructor(context: Context, dataSourceFactory: 
         metrics.onState(status, player.playWhenReady, !backgrounded, SystemClock.elapsedRealtime())
         mutableState.value = previous.copy(status = status, isPlaying = player.isPlaying,
             playWhenReady = player.playWhenReady,
+            activeQuality = player.videoFormat?.let { format ->
+                if (format.height > 0) "${format.height}p${format.frameRate.takeIf { it.isFinite() && it > 30 }?.roundToInt() ?: ""}"
+                else ""
+            }.orEmpty(),
             positionMs = player.currentPosition.coerceAtLeast(0),
             durationMs = player.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0,
             bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0))
@@ -540,7 +589,6 @@ class PlaybackSession internal constructor(context: Context, dataSourceFactory: 
         if (released || player.currentMediaItem?.mediaId != mutableState.value.mediaId ||
             progressiveSources.isNotEmpty()) return
         val qualities = mutableListOf<QualityOption>()
-        var active = ""
         tracks.groups.forEachIndexed { groupIndex, group ->
             if (group.type == C.TRACK_TYPE_VIDEO) for (trackIndex in 0 until group.length) {
                 if (group.isTrackSupported(trackIndex)) {
@@ -549,7 +597,6 @@ class PlaybackSession internal constructor(context: Context, dataSourceFactory: 
                     val fps = format.frameRate.takeIf { it > 0 && it.isFinite() }?.roundToInt()
                     val label = if (height != null) "${height}p${fps?.takeIf { it > 30 } ?: ""}" else "Исходное"
                     qualities += QualityOption("$groupIndex:$trackIndex", label, height, fps)
-                    if (group.isTrackSelected(trackIndex)) active = label
                 }
             }
         }
@@ -566,7 +613,7 @@ class PlaybackSession internal constructor(context: Context, dataSourceFactory: 
         val parameters = builder.build()
         if (parameters != player.trackSelectionParameters) player.trackSelectionParameters = parameters
         mutableState.value = mutableState.value.copy(qualityOptions = qualities,
-            selectedQualityId = restored?.id, activeQuality = active)
+            selectedQualityId = restored?.id)
     }
 
     private fun qualityParameters(): TrackSelectionParameters.Builder {

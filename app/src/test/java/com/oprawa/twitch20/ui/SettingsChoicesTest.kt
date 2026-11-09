@@ -43,10 +43,13 @@ class SettingsChoicesTest {
             val original = AppSettings(overlayStyle = ChatStyle(18, alpha))
             val picker = SettingsSelection(original, ChatMode.OVERLAY, SettingsChoice.OPACITY)
             assertEquals(original, picker.preview())
-            assertEquals("Свой вариант", picker.options[picker.selectedIndex].label)
+            assertEquals(opacityLabel(alpha), picker.options[picker.selectedIndex].label)
+            assertEquals(picker.options.size, picker.options.map { it.label }.distinct().size)
+            assertTrue(picker.options.none { it.label.startsWith("Свой") })
             assertTrue(picker.options.none { option -> option.label.any(Char::isDigit) })
-            assertEquals(original, picker.focus(0).cancel())
-            assertEquals(original.copy(overlayStyle = ChatStyle(18, .25f)), picker.focus(0).confirm())
+            val light = picker.options.indexOfFirst { it.label == "Лёгкий" }
+            assertEquals(original, picker.focus(light).cancel())
+            assertEquals(original.copy(overlayStyle = ChatStyle(18, .25f)), picker.focus(light).confirm())
         }
     }
 

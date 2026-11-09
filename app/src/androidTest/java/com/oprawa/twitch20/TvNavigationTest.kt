@@ -36,8 +36,12 @@ class TvNavigationTest {
         val intent = Intent().setComponent(ComponentName(packageName, "$packageName.MainActivity"))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         instrumentation.targetContext.startActivity(intent)
-        assertTrue("Приложение не открыло каталог", device.wait(Until.hasObject(By.text("Прямые эфиры")), 15_000))
+        assertTrue("Приложение не открыло меню", device.wait(Until.hasObject(By.desc("Поиск")), 15_000))
         assertEquals(packageName, device.currentPackageName)
+        // Logged-in startup is Following; these real-stream regressions explicitly choose discovery.
+        focusDescription("Рекомендации")
+        device.pressDPadCenter()
+        awaitCatalogTitle("Рекомендации")
         awaitCatalogSettled()
     }
 
@@ -52,20 +56,21 @@ class TvNavigationTest {
         assertFalse(device.hasObject(By.desc("О приложении")))
         assertFalse(device.hasObject(By.desc("Войти в Twitch")))
         focusDescription("Категории") // No OK: the focused section must preview itself.
-        assertTrue("Фокус не сменил раздел", device.wait(Until.gone(By.text("Прямые эфиры")), 8_000))
+        awaitCatalogTitle("Категории")
+        assertFalse("Фокус не сменил раздел", hasCatalogTitle("Рекомендации"))
         assertTrue("Заголовок категорий не появился", device.findObjects(By.text("Категории")).size >= 2)
         awaitCatalogSettled()
         assertTrue("Загрузка украла фокус у раздела", targetOrAncestorHasFocus(device.findObject(By.desc("Категории"))!!))
-        focusDescription("Эфиры")
-        assertTrue(device.wait(Until.hasObject(By.text("Прямые эфиры")), 8_000))
+        focusDescription("Рекомендации")
+        awaitCatalogTitle("Рекомендации")
         openSettings()
         assertNotNull(device.findObject(By.desc("Аккаунт")))
         assertNotNull(device.findObject(By.desc("О приложении")))
         assertFalse(device.hasObject(By.text("Сохранить")))
         assertFalse(device.hasObject(By.text("Отменить")))
         device.pressBack()
-        assertTrue(device.wait(Until.gone(By.text("Ваш эфир")), 5_000))
-        assertTrue(device.hasObject(By.desc("Эфиры")))
+        assertTrue(device.wait(Until.gone(By.desc("Аккаунт")), 5_000))
+        assertTrue(device.hasObject(By.desc("Рекомендации")))
         assertEquals(packageName, device.currentPackageName)
     }
 
@@ -75,16 +80,31 @@ class TvNavigationTest {
         assertTrue(original.contains("В ЭФИРЕ"))
         val top = card.visibleBounds.top
         focusDescription("Категории")
-        assertTrue(device.wait(Until.gone(By.text("Прямые эфиры")), 8_000))
+        awaitCatalogTitle("Категории")
         awaitCatalogSettled()
         assertTrue(targetOrAncestorHasFocus(device.findObject(By.desc("Категории"))!!))
         device.pressBack()
-        assertTrue(device.wait(Until.hasObject(By.text("Прямые эфиры")), 8_000))
+        awaitCatalogTitle("Рекомендации")
         awaitCatalogSettled()
         val restored = device.findObject(By.focused(true)) ?: throw AssertionError("Back потерял фокус")
         assertEquals("Back после предпросмотра вернул другую карточку", original, restored.contentDescription)
         assertEquals("Back после предпросмотра сдвинул каталог", top, restored.visibleBounds.top)
         assertFalse(device.hasObject(By.text("Выйти из Twitch 2.0?")))
+    }
+
+    @Test fun searchOpensWithTheQueryFieldFocused() {
+        focusDescription("Каналы")
+        awaitCatalogTitle("Каналы")
+        focusDescription("Поиск")
+        assertTrue("Фокус поиска не должен заменять текущий каталог", hasCatalogTitle("Каналы"))
+        device.pressDPadCenter()
+        assertTrue("Поиск не открыл поле ввода",
+            device.wait(Until.hasObject(By.clazz("android.widget.EditText")), 5_000))
+        awaitStableFocus()
+        val field = device.findObject(By.clazz("android.widget.EditText"))
+            ?: throw AssertionError("Поле поиска исчезло")
+        assertTrue("Поиск должен сразу принимать ввод, а не фокусировать кнопку пустого каталога",
+            targetOrAncestorHasFocus(field))
     }
 
     @Test fun confirmedToggleSavesImmediatelyAndBackKeepsIt() {
@@ -118,7 +138,7 @@ class TvNavigationTest {
         assertFalse("Длинный OK запустил плеер", device.hasObject(By.desc("Пауза")))
         assertFalse("Длинный OK запустил подключение к видео", device.hasObject(By.text("Подключение к Twitch…")))
         device.pressBack()
-        assertTrue(device.wait(Until.hasObject(By.text("Прямые эфиры")), 8_000))
+        awaitCatalogTitle("Рекомендации")
         awaitCatalogSettled()
         val restored = device.findObject(By.focused(true))
             ?: throw AssertionError("Back потерял фокус карточки")
@@ -163,14 +183,14 @@ class TvNavigationTest {
         device.pressDPadCenter()
         assertTrue(device.wait(Until.hasObject(By.text("Аккаунт Twitch")), 5_000))
         device.pressBack()
-        assertTrue(device.wait(Until.hasObject(By.text("Ваш эфир")), 5_000))
+        awaitSettingsOverview()
         awaitStableFocus()
         assertTrue("Back не вернул строку аккаунта", targetOrAncestorHasFocus(device.findObject(By.desc("Аккаунт"))!!))
         focusDescription("О приложении")
         device.pressDPadCenter()
         assertTrue(device.wait(Until.hasObject(By.text("Twitch 2.0")), 5_000))
         device.pressBack()
-        assertTrue(device.wait(Until.hasObject(By.text("Ваш эфир")), 5_000))
+        awaitSettingsOverview()
         awaitStableFocus()
         assertTrue("Back не вернул строку приложения", targetOrAncestorHasFocus(device.findObject(By.desc("О приложении"))!!))
         assertEquals("Вложенные экраны потеряли подтверждённую настройку", after, savedSettings().overlayStyle.textSizeSp)
@@ -227,9 +247,10 @@ class TvNavigationTest {
 
     private fun fontLabel(size: Int): String = when (size) {
         14 -> "Маленький"
+        16 -> "Компактный"
         18 -> "Средний"
         22 -> "Большой"
-        else -> "Свой размер"
+        else -> "Размер $size"
     }
 
     private fun fontLauncher(size: Int) = "Размер текста: ${fontLabel(size)}"
@@ -266,7 +287,7 @@ class TvNavigationTest {
             device.wait(Until.gone(By.descStartsWith("Показывать: ")), 3_000))
         assertTrue("Back скрыл HUD вместе с панелью", device.hasObject(By.desc("Качество")))
         assertTrue("Back остановил воспроизведение", device.hasObject(By.desc("Пауза")))
-        assertFalse("Back вышел в каталог", device.hasObject(By.text("Прямые эфиры")))
+        assertFalse("Back вышел в каталог", hasCatalogTitle("Рекомендации"))
         assertEquals(packageName, device.currentPackageName)
     }
 
@@ -280,7 +301,7 @@ class TvNavigationTest {
             device.wait(Until.hasObject(By.textStartsWith("Вы вошли: ")), 8_000))
         device.pressBack()
         device.pressBack()
-        focusDescription("Эфиры")
+        focusDescription("Рекомендации")
         device.pressDPadCenter()
         awaitCatalogSettled()
         focusDescription(initialCard)
@@ -313,14 +334,32 @@ class TvNavigationTest {
 
     // Refresh restoration uses tools/qa_catalog_refresh.py with fresh native AX snapshots.
 
+    private fun hasCatalogTitle(title: String): Boolean {
+        val rail = device.findObject(By.desc("Рекомендации")) ?: return false
+        val railRight = nearestFocusableAncestor(rail).visibleBounds.right
+        // Expanded rail labels and the actual content heading intentionally share vocabulary.
+        return device.findObjects(By.text(title)).any { it.visibleBounds.left >= railRight }
+    }
+
+    private fun awaitCatalogTitle(title: String) {
+        val deadline = SystemClock.elapsedRealtime() + 8_000
+        while (!hasCatalogTitle(title) && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(50)
+        assertTrue("Не появился заголовок каталога $title", hasCatalogTitle(title))
+    }
+
     private fun savedSettings() = SettingsStore(instrumentation.targetContext).state.value
 
     private fun openSettings() {
         focusDescription("Настройки")
         device.pressDPadCenter()
-        assertTrue("Настройки не открылись", device.wait(Until.hasObject(By.text("Ваш эфир")), 5_000))
-        assertTrue(device.hasObject(By.desc("Аккаунт")))
+        awaitSettingsOverview()
         awaitStableFocus()
+    }
+
+    private fun awaitSettingsOverview() {
+        // The rail has its own Settings label; account is only exposed by the overview.
+        assertTrue("Обзор настроек не открылся", device.wait(Until.hasObject(By.desc("Аккаунт")), 5_000))
+        assertTrue("Нет заголовка настроек", device.hasObject(By.text("Настройки")))
     }
 
     private fun setProfileEnabled(enabled: Boolean) {
@@ -344,6 +383,7 @@ class TvNavigationTest {
     /** Move toward observed node bounds; every step is based on current focus and target geometry. */
     private fun focusTarget(label: String, find: () -> UiObject2?) {
         repeat(48) { attempt ->
+            try {
             val target = find()
             if (target == null) {
                 // A settings profile can be below the viewport; traverse actual focusable rows.
@@ -373,6 +413,12 @@ class TvNavigationTest {
                 }
             }
             device.waitForIdle(500)
+            } catch (_: androidx.test.uiautomator.StaleObjectException) {
+                // Rail expansion and account validation may replace an accessibility node
+                // between lookup and ancestry reads. Retry from fresh nodes, with the same
+                // bounded navigation budget and the same final focus assertion.
+                device.waitForIdle(500)
+            }
         }
         throw AssertionError("D-pad не довёл фокус до $label; текущий: ${device.findObject(By.focused(true))?.contentDescription}")
     }

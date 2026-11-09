@@ -42,4 +42,30 @@ class SettingsEditorStateTest {
         assertEquals("CLOCK", state.overviewFocus)
         assertEquals(SettingsEditorPage.OVERVIEW, state.page)
     }
+
+    @Test fun focusedSettingSelectsTheCorrespondingExampleWithoutSwitchingPages() {
+        val state = SettingsEditorState()
+        state.rememberOverviewFocus("OVERLAY")
+        assertEquals(SettingsPreviewTarget.OVERLAY, state.previewTarget())
+        state.rememberOverviewFocus("ACCOUNT")
+        assertEquals(SettingsPreviewTarget.ACCOUNT, state.previewTarget())
+        state.open(SettingsEditorPage.INTERFACE)
+        assertEquals(SettingsPreviewTarget.CATALOG, state.previewTarget())
+        state.focusSetting("ANIMATIONS")
+        assertEquals(SettingsPreviewTarget.ANIMATIONS, state.previewTarget())
+        assertEquals(SettingsEditorPage.INTERFACE, state.page)
+        state.focusSetting("CARD_PREVIEW")
+        assertEquals(SettingsPreviewTarget.CATALOG, state.previewTarget())
+        state.open(SettingsEditorPage.CLOCK)
+        assertEquals(SettingsPreviewTarget.CLOCK, state.previewTarget())
+    }
+
+    @Test fun notificationPageReturnsToItsOwnOverviewRow() {
+        val state = SettingsEditorState()
+        state.open(SettingsEditorPage.NOTIFICATIONS)
+        assertEquals(SettingsPreviewTarget.NOTIFICATIONS, state.previewTarget())
+        assertTrue(state.back())
+        assertEquals("NOTIFICATIONS", state.overviewFocus)
+        assertEquals(SettingsPreviewTarget.NOTIFICATIONS, state.previewTarget())
+    }
 }

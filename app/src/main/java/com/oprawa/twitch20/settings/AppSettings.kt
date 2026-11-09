@@ -20,6 +20,7 @@ data class AppSettings(
     val animationsEnabled: Boolean = true,
     val overlaySize: OverlaySize = OverlaySize.MEDIUM,
     val cardPreviewEnabled: Boolean = true,
+    val followNotificationsEnabled: Boolean = true,
 ) {
     val chatEnabled: Boolean get() = chatMode != ChatMode.OFF
     val overlayEnabled: Boolean get() = chatMode == ChatMode.OVERLAY
@@ -60,6 +61,7 @@ internal object SettingsCodec {
             animationsEnabled = values["animationsEnabled"] as? Boolean ?: true,
             overlaySize = enumValue<OverlaySize>(values["overlaySize"]) ?: OverlaySize.MEDIUM,
             cardPreviewEnabled = values["cardPreviewEnabled"] as? Boolean ?: true,
+            followNotificationsEnabled = values["followNotificationsEnabled"] as? Boolean ?: true,
         )
     }
 
@@ -69,7 +71,8 @@ internal object SettingsCodec {
             "theaterTextSizeSp" to safe.theaterStyle.textSizeSp, "theaterOpacity" to safe.theaterStyle.opacity,
             "chatPosition" to safe.chatPosition.name, "showClock" to safe.showClock,
             "animationsEnabled" to safe.animationsEnabled,
-            "overlaySize" to safe.overlaySize.name, "cardPreviewEnabled" to safe.cardPreviewEnabled)
+            "overlaySize" to safe.overlaySize.name, "cardPreviewEnabled" to safe.cardPreviewEnabled,
+            "followNotificationsEnabled" to safe.followNotificationsEnabled)
     }
 
     private inline fun <reified T : Enum<T>> enumValue(value: Any?): T? =

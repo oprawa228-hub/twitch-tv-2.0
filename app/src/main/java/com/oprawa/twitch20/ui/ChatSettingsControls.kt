@@ -61,7 +61,7 @@ internal fun ChatSettingsControls(
     LaunchedEffect(selection) { previewCallback(selection?.preview()) }
     DisposableEffect(Unit) { onDispose { previewCallback(null) } }
     val launchers = remember {
-        (listOf("ACCOUNT", "OVERLAY", "THEATER", "INTERFACE", "CLOCK", "ABOUT", "UPDATES") +
+        (listOf("ACCOUNT", "OVERLAY", "THEATER", "INTERFACE", "CLOCK", "NOTIFICATIONS", "ABOUT", "UPDATES") +
             SettingsChoice.entries.map { it.name }).associateWith { FocusRequester() }
     }
     BackHandler(enabled = state.page != SettingsEditorPage.OVERVIEW || selection != null) {
@@ -119,6 +119,8 @@ internal fun ChatSettingsControls(
                     onFocused = { state.rememberOverviewFocus("THEATER") }) { state.open(SettingsEditorPage.THEATER) }
                 SettingsPageLink("Часы", Modifier.focusRequester(launchers.getValue("CLOCK")),
                     onFocused = { state.rememberOverviewFocus("CLOCK") }) { state.open(SettingsEditorPage.CLOCK) }
+                SettingsPageLink("Уведомления", Modifier.focusRequester(launchers.getValue("NOTIFICATIONS")),
+                    onFocused = { state.rememberOverviewFocus("NOTIFICATIONS") }) { state.open(SettingsEditorPage.NOTIFICATIONS) }
                 if (onAbout != null) SettingsPageLink("О приложении", Modifier.focusRequester(launchers.getValue("ABOUT")),
                     onFocused = { state.rememberOverviewFocus("ABOUT") }, onClick = onAbout)
                 else if (onCheckUpdates != null) SettingsPageLink("Проверить обновления", Modifier.focusRequester(launchers.getValue("UPDATES")),
@@ -148,8 +150,10 @@ internal fun ChatSettingsControls(
                 Text("Интерфейс", color = TvColors.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
                 SettingChoice("Предпросмотр эфиров", enabledLabel(settings.cardPreviewEnabled), Modifier.focusRequester(firstFocus),
+                    onFocused = { state.focusSetting("CARD_PREVIEW") },
                     selected = settings.cardPreviewEnabled) { onChange(settings.copy(cardPreviewEnabled = !settings.cardPreviewEnabled)) }
                 SettingChoice("Анимации", if (settings.animationsEnabled) "Включены" else "Выключены",
+                    onFocused = { state.focusSetting("ANIMATIONS") },
                     selected = settings.animationsEnabled) { onChange(settings.copy(animationsEnabled = !settings.animationsEnabled)) }
             }
             SettingsEditorPage.CLOCK -> {
@@ -157,6 +161,14 @@ internal fun ChatSettingsControls(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
                 SettingChoice("На главной и в плеере", if (settings.showClock) "Показаны" else "Скрыты", Modifier.focusRequester(firstFocus),
                     selected = settings.showClock) { onChange(settings.copy(showClock = !settings.showClock)) }
+            }
+            SettingsEditorPage.NOTIFICATIONS -> {
+                Text("Уведомления", color = TvColors.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                SettingChoice("Новые эфиры каналов", if (settings.followNotificationsEnabled) "Показаны" else "Скрыты",
+                    Modifier.focusRequester(firstFocus), selected = settings.followNotificationsEnabled) {
+                    onChange(settings.copy(followNotificationsEnabled = !settings.followNotificationsEnabled))
+                }
             }
         }
     }
@@ -189,7 +201,7 @@ private fun TextSizeOption(label: String, selected: Boolean, modifier: Modifier,
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         RadioButton(selected = selected, onClick = null,
             colors = RadioButtonDefaults.colors(selectedColor = foreground, unselectedColor = foreground))
-        Text(label, fontSize = 16.sp, color = foreground)
+        Text(label, modifier = Modifier.weight(1f), fontSize = 16.sp, lineHeight = 21.sp, color = foreground)
     }
 }
 

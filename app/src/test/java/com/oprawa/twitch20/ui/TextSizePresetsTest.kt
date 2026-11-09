@@ -25,7 +25,15 @@ class TextSizePresetsTest {
         assertEquals("Маленький", textSizeLabel(14))
         assertEquals("Средний", textSizeLabel(18))
         assertEquals("Большой", textSizeLabel(22))
-        for (size in listOf(12, 16, 20, 24)) assertEquals("Свой размер", textSizeLabel(size))
+        assertEquals("Компактный", textSizeLabel(16))
+        for (size in listOf(12, 13, 15, 17, 19, 20, 21, 23, 24)) assertEquals("Размер $size", textSizeLabel(size))
+        for (size in 12..24) {
+            val picker = TextSizeSelection(AppSettings(overlayStyle = ChatStyle(size)), ChatMode.OVERLAY)
+            val labels = picker.options.map(::textSizeLabel)
+            assertEquals("Each visible choice must be distinguishable", labels.size, labels.distinct().size)
+            assertTrue(labels.none { it.startsWith("Свой") })
+            assertTrue(picker.options.size <= 5)
+        }
     }
 
     @Test fun focusingPreviewDoesNotChangeDraftOrEnableInactiveProfile() {
@@ -50,6 +58,6 @@ class TextSizePresetsTest {
         val reopened = TextSizeSelection(confirmed, ChatMode.THEATER)
         assertEquals(18, reopened.selectedSizeSp)
         assertEquals(18, reopened.focusedSizeSp)
-        assertEquals(listOf(14, 18, 22), reopened.options)
+        assertEquals(listOf(14, 16, 18, 22), reopened.options)
     }
 }
