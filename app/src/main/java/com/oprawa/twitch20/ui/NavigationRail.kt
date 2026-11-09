@@ -83,9 +83,10 @@ fun NavigationRail(
     val removedFocusedChannel = focusedKey?.takeIf {
         expanded && it.startsWith("live:") && it.removePrefix("live:") !in liveById
     }?.removePrefix("live:")
-    val requesters = remember { mutableMapOf<String, FocusRequester>() }
-    (entries.map { it.key } + liveIds.map { "live:$it" } + "settings").forEach {
-        requesters.getOrPut(it) { FocusRequester() }
+    val requesterCache = remember { mutableMapOf<String, FocusRequester>() }
+    val focusKeys = entries.map { it.key } + liveIds.map { "live:$it" } + "settings"
+    val requesters = remember(focusKeys) {
+        requesterCache.apply { focusKeys.forEach { getOrPut(it) { FocusRequester() } } }
     }
     fun focusLive(index: Int) {
         scope.launch {
