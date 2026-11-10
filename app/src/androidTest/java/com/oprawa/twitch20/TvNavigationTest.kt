@@ -52,8 +52,8 @@ class TvNavigationTest {
     }
 
     @Test fun remoteFocusPreviewsCatalogSectionsAndSettingsRemainsTheOnlyBottomDestination() {
-        assertFalse(device.hasObject(By.desc("Аккаунт")))
-        assertFalse(device.hasObject(By.desc("О приложении")))
+        assertFalse(device.hasObject(By.descStartsWith("Аккаунт: ")))
+        assertFalse(device.hasObject(By.descStartsWith("О приложении: ")))
         assertFalse(device.hasObject(By.desc("Войти в Twitch")))
         focusDescription("Категории") // No OK: the focused section must preview itself.
         awaitCatalogTitle("Категории")
@@ -64,12 +64,12 @@ class TvNavigationTest {
         focusDescription("Рекомендации")
         awaitCatalogTitle("Рекомендации")
         openSettings()
-        assertNotNull(device.findObject(By.desc("Аккаунт")))
-        assertNotNull(device.findObject(By.desc("О приложении")))
+        assertNotNull(device.findObject(By.descStartsWith("Аккаунт: ")))
+        assertNotNull(device.findObject(By.descStartsWith("О приложении: ")))
         assertFalse(device.hasObject(By.text("Сохранить")))
         assertFalse(device.hasObject(By.text("Отменить")))
         device.pressBack()
-        assertTrue(device.wait(Until.gone(By.desc("Аккаунт")), 5_000))
+        assertTrue(device.wait(Until.gone(By.descStartsWith("Аккаунт: ")), 5_000))
         assertTrue(device.hasObject(By.desc("Рекомендации")))
         assertEquals(packageName, device.currentPackageName)
     }
@@ -107,20 +107,19 @@ class TvNavigationTest {
             targetOrAncestorHasFocus(field))
     }
 
-    @Test fun confirmedToggleSavesImmediatelyAndBackKeepsIt() {
+    @Test fun previewModeChangesImmediatelyAndBackKeepsIt() {
+        val before = savedSettings()
         openSettings()
-        openEditorPage("Чат поверх видео")
-        val wasEnabled = savedSettings().overlayEnabled
-        setProfileEnabled(!wasEnabled)
-        assertEquals(!wasEnabled, savedSettings().overlayEnabled)
-        assertFalse(device.hasObject(By.text("Сохранить")))
-        assertFalse(device.hasObject(By.text("Есть несохранённые изменения")))
+        openEditorPage("Интерфейс")
+        focusDescription("Предпросмотр")
+        if (before.cardPreviewEnabled) device.pressDPadLeft() else device.pressDPadRight()
+        awaitStableFocus()
+        val after = savedSettings()
+        assertTrue(before.cardPreviewEnabled != after.cardPreviewEnabled ||
+            before.previewSoundEnabled != after.previewSoundEnabled)
         device.pressBack()
         device.pressBack()
-        openSettings()
-        openEditorPage("Чат поверх видео")
-        assertTrue(device.hasObject(By.desc("Показывать: ${if (!wasEnabled) "Включён" else "Выключен"}")))
-        assertEquals("Back отменил подтверждённое изменение", !wasEnabled, savedSettings().overlayEnabled)
+        assertEquals(after, savedSettings())
     }
 
     @Test fun platformLongOkOpensChannelAndBackRestoresCard() {
@@ -147,144 +146,117 @@ class TvNavigationTest {
     }
 
     @Test fun chatModesAreExclusiveAndInactiveProfileEditingDoesNotEnableIt() {
-        openSettings()
-        openEditorPage("Чат поверх видео")
-        setProfileEnabled(true)
+        startLiveHud()
+        if (!savedSettings().overlayEnabled) activatePlayerChat("Чат:")
         assertEquals(ChatMode.OVERLAY, savedSettings().chatMode)
-        device.pressBack()
-        openEditorPage("Кинотеатр")
-        setProfileEnabled(true)
+        activatePlayerChat("Кинотеатр:")
         assertEquals(ChatMode.THEATER, savedSettings().chatMode)
-        assertFalse(savedSettings().overlayEnabled)
-        assertFalse("В кинотеатре нет прозрачности", device.hasObject(By.descStartsWith("Фон чата:")))
-        assertFalse("Кинотеатр имеет фиксированную ширину", device.hasObject(By.descStartsWith("Размер чата:")))
-        setProfileEnabled(false)
+        activatePlayerChat("Кинотеатр:")
         assertEquals(ChatMode.OFF, savedSettings().chatMode)
         device.pressBack()
-        openEditorPage("Чат поверх видео")
-        val before = savedSettings().overlayStyle.textSizeSp
-        val after = if (before == 22) 14 else 22
-        val theater = savedSettings().theaterStyle
-        selectTextSize(before, after)
+        device.pressBack()
+        awaitCatalogTitle("Рекомендации")
+
+        openSettings()
+        openViewingProfile("Overlay")
+        val before = savedSettings()
+        val after = changeTextSize(ChatMode.OVERLAY, before.overlayStyle.textSizeSp)
         assertEquals(ChatMode.OFF, savedSettings().chatMode)
-        assertEquals(theater, savedSettings().theaterStyle)
+        assertEquals(before.theaterStyle, savedSettings().theaterStyle)
         assertEquals(after, savedSettings().overlayStyle.textSizeSp)
-        assertTrue(device.hasObject(By.text("Профиль выключен")))
+        assertTrue(device.hasObject(By.textStartsWith("Профиль выключен")))
     }
 
     @Test fun accountAndAboutAreNestedInSettingsAndBackRestoresTheirRows() {
         openSettings()
-        openEditorPage("Чат поверх видео")
-        val before = savedSettings().overlayStyle.textSizeSp
-        val after = if (before == 22) 14 else 22
-        selectTextSize(before, after)
-        device.pressBack()
         focusDescription("Аккаунт")
         device.pressDPadCenter()
         assertTrue(device.wait(Until.hasObject(By.text("Аккаунт Twitch")), 5_000))
         device.pressBack()
         awaitSettingsOverview()
         awaitStableFocus()
-        assertTrue("Back не вернул строку аккаунта", targetOrAncestorHasFocus(device.findObject(By.desc("Аккаунт"))!!))
+        assertTrue("Back не вернул строку аккаунта", targetOrAncestorHasFocus(findDescription("Аккаунт")!!))
         focusDescription("О приложении")
         device.pressDPadCenter()
-        assertTrue(device.wait(Until.hasObject(By.text("Twitch 2.0")), 5_000))
+        assertTrue(device.wait(Until.hasObject(By.desc("Авторы и лицензии")), 5_000))
         device.pressBack()
         awaitSettingsOverview()
         awaitStableFocus()
-        assertTrue("Back не вернул строку приложения", targetOrAncestorHasFocus(device.findObject(By.desc("О приложении"))!!))
-        assertEquals("Вложенные экраны потеряли подтверждённую настройку", after, savedSettings().overlayStyle.textSizeSp)
+        assertTrue("Back не вернул строку приложения", targetOrAncestorHasFocus(findDescription("О приложении")!!))
     }
 
     @Test fun settingsProfilesSaveIndependentlyAndClockHasItsOwnPage() {
         openSettings()
-        openEditorPage("Кинотеатр")
-        val before = savedSettings().theaterStyle.textSizeSp
-        val after = if (before == 22) 14 else 22
-        val overlay = savedSettings().overlayStyle
-        selectTextSize(before, after)
+        openViewingProfile("Кинотеатр")
+        val before = savedSettings()
+        assertFalse(device.hasObject(By.descStartsWith("Фон чата:")))
+        assertFalse(device.hasObject(By.descStartsWith("Размер чата:")))
+        val after = changeTextSize(ChatMode.THEATER, before.theaterStyle.textSizeSp)
         assertEquals(after, savedSettings().theaterStyle.textSizeSp)
-        assertEquals(overlay, savedSettings().overlayStyle)
+        assertEquals(before.overlayStyle, savedSettings().overlayStyle)
         device.pressBack()
         awaitStableFocus()
-        assertTrue("Back не вернул профиль кинотеатра", targetOrAncestorHasFocus(device.findObject(By.desc("Кинотеатр"))!!))
+        assertTrue("Back не вернул профиль кинотеатра", targetOrAncestorHasFocus(findDescription("Кинотеатр")!!))
+        device.pressBack()
         openEditorPage("Интерфейс")
         assertFalse(device.hasObject(By.descStartsWith("На главной и в плеере:")))
-        device.pressBack()
         openEditorPage("Часы")
         val clockBefore = savedSettings().showClock
-        focusDescription("На главной и в плеере: ${if (clockBefore) "Показаны" else "Скрыты"}")
-        device.pressDPadCenter()
-        assertTrue(device.wait(Until.hasObject(By.desc("На главной и в плеере: ${if (!clockBefore) "Показаны" else "Скрыты"}")), 3_000))
+        focusDescription("На главной и в плеере")
+        if (clockBefore) device.pressDPadLeft() else device.pressDPadRight()
+        awaitStableFocus()
         assertEquals(!clockBefore, savedSettings().showClock)
         assertEquals(after, savedSettings().theaterStyle.textSizeSp)
     }
 
-    @Test fun textSizeFocusOnlyPreviewsAndOkPersistsWithoutAnExtraSave() {
-        val saved = savedSettings()
-        val before = saved.overlayStyle.textSizeSp
-        val after = if (before == 22) 14 else 22
+    @Test fun focusedTextSizeChangesWithArrowWithoutAnExtraSave() {
+        val before = savedSettings()
         openSettings()
-        openEditorPage("Чат поверх видео")
-        focusDescription(fontLauncher(before))
-        device.pressDPadCenter()
-        awaitStableFocus()
-        assertTrue("Picker должен открыться на текущем размере",
-            targetOrAncestorHasFocus(device.findObject(By.desc("Размер текста: ${fontLabel(before)}"))!!))
-        focusDescription("Размер текста: ${fontLabel(after)}")
-        assertEquals("Один фокус сохранил значение", saved, savedSettings())
-        device.pressBack()
-        assertTrue(device.wait(Until.hasObject(By.desc("Показывать: ${if (saved.overlayEnabled) "Включён" else "Выключен"}")), 3_000))
-        awaitStableFocus()
-        assertTrue("Back не восстановил строку размера", targetOrAncestorHasFocus(device.findObject(By.desc(fontLauncher(before)))!!))
-        assertEquals(saved, savedSettings())
-        selectTextSize(before, after)
-        assertEquals("OK не сохранил размер", after, savedSettings().overlayStyle.textSizeSp)
+        openViewingProfile("Overlay")
+        focusDescription("Размер текста")
+        assertEquals("Один фокус изменил сохранённое значение", before, savedSettings())
+        val after = changeTextSize(ChatMode.OVERLAY, before.overlayStyle.textSizeSp)
         device.pressBack()
         device.pressBack()
-        assertEquals("Выход из настроек отменил подтверждённый размер", after, savedSettings().overlayStyle.textSizeSp)
+        device.pressBack()
+        assertEquals(after, savedSettings().overlayStyle.textSizeSp)
     }
 
-    private fun fontLabel(size: Int): String = when (size) {
-        14 -> "Маленький"
-        16 -> "Компактный"
-        18 -> "Средний"
-        22 -> "Большой"
-        else -> "Размер $size"
+    private fun changeTextSize(mode: ChatMode, before: Int): Int {
+        focusDescription("Размер текста")
+        if (before == 22) device.pressDPadLeft() else device.pressDPadRight()
+        awaitStableFocus()
+        return savedSettings().styleFor(mode).textSizeSp.also { assertTrue("Стрелка не изменила размер", it != before) }
     }
 
-    private fun fontLauncher(size: Int) = "Размер текста: ${fontLabel(size)}"
+    private fun startLiveHud() {
+        val card = device.findObject(By.focused(true)) ?: throw AssertionError("Нет фокуса первого эфира")
+        assertTrue(card.contentDescription?.contains("В ЭФИРЕ") == true)
+        device.pressDPadCenter()
+        assertTrue("Эфир не открыл плеер", device.wait(Until.hasObject(By.desc("Пауза")), 45_000))
+    }
 
-    private fun selectTextSize(before: Int, after: Int) {
-        focusDescription(fontLauncher(before))
+    private fun activatePlayerChat(prefix: String) {
+        if (!device.hasObject(By.desc("Качество"))) device.pressDPadCenter()
+        focusTarget(prefix) { device.findObject(By.descStartsWith(prefix)) }
         device.pressDPadCenter()
-        focusDescription("Размер текста: ${fontLabel(after)}")
-        device.pressDPadCenter()
-        assertTrue(device.wait(Until.hasObject(By.descStartsWith("Показывать: ")), 3_000))
-        assertTrue(device.hasObject(By.desc(fontLauncher(after))))
         awaitStableFocus()
     }
 
     @Test fun oneBackClosesPlayerChatProfileAndKeepsHud() {
-        val card = device.findObject(By.focused(true))
-            ?: throw AssertionError("Нет фокуса первого прямого эфира")
-        assertTrue("Для проверки нужен настоящий прямой эфир",
-            card.contentDescription?.contains("В ЭФИРЕ") == true)
-        device.pressDPadCenter()
-        assertTrue("Прямой эфир не начал воспроизведение",
-            device.wait(Until.hasObject(By.desc("Пауза")), 45_000))
-        // Reveal only when hidden; a confirm on visible HUD would pause live playback.
+        startLiveHud()
         if (!device.hasObject(By.desc("Качество"))) device.pressDPadCenter()
         focusTarget("Чат") { device.findObject(By.descStartsWith("Чат:")) }
         device.executeShellCommand("input keyevent --longpress KEYCODE_DPAD_CENTER")
-        assertTrue("Не открылся профиль чата",
-            device.wait(Until.hasObject(By.descStartsWith("Показывать: ")), 5_000))
+        assertTrue("Не открылся профиль Overlay",
+            device.wait(Until.hasObject(By.descStartsWith("Размер чата:")), 5_000))
+        assertFalse(device.hasObject(By.descStartsWith("Показывать:")))
         awaitStableFocus()
 
-        device.pressBack() // Exactly one physical Back down/up pair.
+        device.pressBack()
 
-        assertTrue("Первый Back только переместил фокус и оставил панель",
-            device.wait(Until.gone(By.descStartsWith("Показывать: ")), 3_000))
+        assertTrue("Первый Back оставил панель",
+            device.wait(Until.gone(By.descStartsWith("Размер чата:")), 3_000))
         assertTrue("Back скрыл HUD вместе с панелью", device.hasObject(By.desc("Качество")))
         assertTrue("Back остановил воспроизведение", device.hasObject(By.desc("Пауза")))
         assertFalse("Back вышел в каталог", hasCatalogTitle("Рекомендации"))
@@ -298,7 +270,7 @@ class TvNavigationTest {
         focusDescription("Аккаунт")
         device.pressDPadCenter()
         assertTrue("Для Helix-проверки нужен уже сохранённый аккаунт",
-            device.wait(Until.hasObject(By.textStartsWith("Вы вошли: ")), 8_000))
+            device.wait(Until.hasObject(By.text("Аккаунт подключён")), 8_000))
         device.pressBack()
         device.pressBack()
         focusDescription("Рекомендации")
@@ -358,27 +330,27 @@ class TvNavigationTest {
 
     private fun awaitSettingsOverview() {
         // The rail has its own Settings label; account is only exposed by the overview.
-        assertTrue("Обзор настроек не открылся", device.wait(Until.hasObject(By.desc("Аккаунт")), 5_000))
+        assertTrue("Обзор настроек не открылся", device.wait(Until.hasObject(By.descStartsWith("Аккаунт: ")), 5_000))
         assertTrue("Нет заголовка настроек", device.hasObject(By.text("Настройки")))
     }
 
-    private fun setProfileEnabled(enabled: Boolean) {
-        val desired = "Показывать: ${if (enabled) "Включён" else "Выключен"}"
-        if (!device.hasObject(By.desc(desired))) {
-            focusTarget("Показывать") { device.findObject(By.descStartsWith("Показывать: ")) }
-            device.pressDPadCenter()
-        }
-        assertTrue(device.wait(Until.hasObject(By.desc(desired)), 3_000))
+    private fun openViewingProfile(label: String) {
+        openEditorPage("Просмотр")
+        openEditorPage(label)
+        assertTrue(device.wait(Until.hasObject(By.descStartsWith("Размер текста:")), 3_000))
     }
 
     private fun openEditorPage(label: String) {
         focusDescription(label)
         device.pressDPadCenter()
-        assertTrue("Не открылась страница $label", device.wait(Until.gone(By.desc("Аккаунт")), 3_000))
+        assertTrue("Не открылась страница $label", device.wait(Until.gone(By.descStartsWith("Аккаунт: ")), 3_000))
         awaitStableFocus()
     }
 
-    private fun focusDescription(description: String) = focusTarget(description) { device.findObject(By.desc(description)) }
+    private fun focusDescription(description: String) = focusTarget(description) { findDescription(description) }
+
+    private fun findDescription(description: String): UiObject2? =
+        device.findObject(By.desc(description)) ?: device.findObject(By.descStartsWith("$description: "))
 
     /** Move toward observed node bounds; every step is based on current focus and target geometry. */
     private fun focusTarget(label: String, find: () -> UiObject2?) {

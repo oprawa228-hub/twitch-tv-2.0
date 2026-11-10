@@ -44,6 +44,7 @@ data class UpdateState(
     val available: UpdateRelease? = null,
     val currentNotes: String? = null,
     val progressKnown: Boolean = false,
+    val latestPublished: UpdateRelease? = null,
 )
 
 /** No credentials; only the new project's public release channel is reachable. */
@@ -101,7 +102,7 @@ class UpdateManager(context: Context) {
                 checkRawChannel(includePrerelease, currentVersion, installedCert)
                 return@execute
             }
-            var newest: UpdateRelease? = null
+            var latestPublished: UpdateRelease? = null
             var currentNotes: String? = null
             var manifestFailures = 0
             for (release in releases) {
@@ -123,26 +124,32 @@ class UpdateManager(context: Context) {
                     require(publishedAsset != null && publishedAsset.optLong("size") in 1..UpdatePolicy.MAX_APK_BYTES) {
                         "Файл APK отсутствует или слишком велик"
                     }
-                    if (manifest.versionCode < currentVersion) continue
                     val notes = release.opt("body")?.let { it as? String }?.trim()?.takeIf { it.isNotBlank() }
-                    if (manifest.versionCode == currentVersion) {
-                        if (currentNotes == null && manifest.versionName == installed.versionName) {
-                            UpdatePolicy.validateRelease(manifest, 0, Build.VERSION.SDK_INT, installedCert)
-                            currentNotes = notes
-                        }
-                        continue
+                    try {
+                        UpdatePolicy.validateRelease(manifest, 0, Build.VERSION.SDK_INT, installedCert)
+                    } catch (invalid: IllegalArgumentException) {
+                        if (manifest.versionCode < currentVersion) continue
+                        throw invalid
                     }
-                    UpdatePolicy.validateRelease(manifest, currentVersion, Build.VERSION.SDK_INT, installedCert)
-                    if (newest == null || manifest.versionCode > newest.versionCode) newest = manifest.copy(notes = notes)
+                    val published = manifest.copy(notes = notes)
+                    if (latestPublished == null || published.versionCode > latestPublished.versionCode) {
+                        latestPublished = published
+                    }
+                    if (published.versionCode == currentVersion && published.versionName == installed.versionName) {
+                        if (currentNotes == null) currentNotes = notes
+                    }
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { manifestFailures++ }
             }
             currentCoroutineContext().ensureActive()
+            val newest = latestPublished?.takeIf { it.versionCode > currentVersion }
             publish(when {
-                newest != null -> UpdateState("available", "Доступна версия ${newest.versionName}", available = newest)
-                manifestFailures > 0 -> UpdateState("error", "Не удалось проверить файлы выпуска. Повторите позже.")
+                newest != null -> UpdateState("available", "Доступна версия ${newest.versionName}", available = newest,
+                    latestPublished = newest)
+                manifestFailures > 0 -> UpdateState("error", "Не удалось проверить файлы выпуска. Повторите позже.",
+                    latestPublished = latestPublished)
                 else -> UpdateState("current", if (includePrerelease) "Новых версий пока нет" else "Новых стабильных версий пока нет",
-                    currentNotes = currentNotes)
+                    currentNotes = currentNotes, latestPublished = latestPublished)
             })
         }
     }
@@ -303,8 +310,9 @@ class UpdateManager(context: Context) {
         }
         currentCoroutineContext().ensureActive()
         publish(if (release != null && release.versionCode > currentVersion)
-            UpdateState("available", "Доступна версия ${release.versionName}", available = release)
-        else UpdateState("current", if (includePrerelease) "Новых версий пока нет" else "Новых стабильных версий пока нет"))
+            UpdateState("available", "Доступна версия ${release.versionName}", available = release, latestPublished = release)
+        else UpdateState("current", if (includePrerelease) "Новых версий пока нет" else "Новых стабильных версий пока нет",
+            latestPublished = release))
     }
 
     private class HttpFailure(val status: Int) : IOException("Сервис обновления недоступен")

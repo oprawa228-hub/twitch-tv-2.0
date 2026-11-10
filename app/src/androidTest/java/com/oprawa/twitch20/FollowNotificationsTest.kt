@@ -333,12 +333,8 @@ class FollowNotificationsTest {
         assertTrue(focusedContains { it.contentDescription == setting })
     }
     private fun changeNotificationSetting(enabled: Boolean) {
-        device.pressDPadCenter()
-        assertTrue(device.wait(Until.hasObject(By.text("Значение")), 3_000))
-        device.pressDPadRight()
+        if (enabled) device.pressDPadRight() else device.pressDPadLeft()
         assertTrue(device.wait(Until.hasObject(By.desc("Новые эфиры подписок: ${notificationValue(enabled)}")), 3_000))
-        device.pressBack()
-        assertTrue(device.wait(Until.gone(By.text("Значение")), 3_000))
     }
     private fun closeSettings() {
         device.pressBack()

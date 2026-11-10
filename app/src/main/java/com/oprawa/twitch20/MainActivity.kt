@@ -10,10 +10,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -21,9 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -62,7 +58,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private data class Route(val kind: String, val value: String = "", val title: String = "") {
+private data class Route(val kind: String, val value: String = "", val title: String = "", val categoryArt: String = "") {
     val key get() = "$kind:$value"
 }
 private data class Watching(val id: String, val kind: String, val login: String, val title: String, val subtitle: String, val channel: Channel? = null)
@@ -114,6 +110,7 @@ private fun TwitchApp() {
     val currentFollowing by rememberUpdatedState(followingState)
     var followingRefreshRequested by remember(followingMonitor) { mutableIntStateOf(0) }
     val updater = remember { UpdateManager(context) }
+    val updateState by updater.state.collectAsStateWithLifecycle()
     val catalogState = rememberSaveableStateHolder()
     var route by remember { mutableStateOf(Route("streams", title = "Рекомендации")) }
     val history = remember { mutableStateListOf<Route>() }
@@ -127,8 +124,10 @@ private fun TwitchApp() {
     var playerControlsVisible by remember { mutableStateOf(false) }
     var railChannelPreview by remember { mutableStateOf<Channel?>(null) }
     var focusedRailChannelId by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(railChannelPreview?.id) {
+    var latestRailVideo by remember(railChannelPreview?.id) { mutableStateOf<Video?>(null) }
+    LaunchedEffect(railChannelPreview?.id, focusedRailChannelId) {
         val focused = railChannelPreview ?: return@LaunchedEffect
+        if (focusedRailChannelId != focused.id) return@LaunchedEffect
         delay(450)
         try {
             val detail = if (authState.loggedIn) HelixCatalogRepository(auth::helixGet).channel(focused.login)
@@ -138,6 +137,10 @@ private fun TwitchApp() {
                     avatarUrl = detail.avatarUrl.ifBlank { current.avatarUrl })
             }
         } catch (cancel: CancellationException) { throw cancel } catch (_: Exception) { }
+        if (!focused.live) {
+            latestRailVideo = try { repository.videos(focused.login).firstOrNull() }
+                catch (cancel: CancellationException) { throw cancel } catch (_: Exception) { null }
+        }
     }
     LaunchedEffect(followingState.channels) {
         val shown = railChannelPreview ?: return@LaunchedEffect
@@ -157,6 +160,9 @@ private fun TwitchApp() {
     // Only a deliberate remote move should prevent the catalog's initial restoration.
     var userNavigated by remember(watching, settingsOpen, aboutOpen, accountOpen, exitOpen) { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
+    var searchFilter by rememberSaveable { mutableStateOf(SearchFilter.All) }
+    var searchFiltersFocused by remember(route.kind) { mutableStateOf(false) }
+    var voiceUnavailable by remember { mutableStateOf(false) }
     // Identity is part of the cache boundary: logout cannot leave a personal catalog behind.
     val catalogCache = remember(authState.loggedIn, authState.displayName) { linkedMapOf<String, CatalogPager<CatalogItem>>() }
     val channelInfo = remember(authState.loggedIn, authState.displayName) { mutableStateMapOf<String, Channel>() }
@@ -197,7 +203,7 @@ private fun TwitchApp() {
                     }
                     CatalogPage(page.items.map { CatalogItem.Recording(it) }, page.nextCursor)
                 }
-                "search" -> CatalogPage(repository.search(requested.value).map { CatalogItem.Stream(it) }, null)
+                "search" -> CatalogPage(repository.searchCatalog(requested.value), null)
                 "recordings" -> {
                     if (after == null) recordingChannels = currentFollowing.channels
                     val page = helix.recordingsPage(recordingChannels, after)
@@ -259,6 +265,22 @@ private fun TwitchApp() {
         catalogEntryGeneration++
         if (push) history.add(route) else history.clear()
         route = next
+    }
+    fun submitSearch(value: String) {
+        val term = value.trim().take(100)
+        if (term.isNotEmpty()) {
+            query = term
+            if (route.key != Route("search", term).key)
+                navigate(Route("search", term, "Результаты поиска"), push = false)
+        }
+    }
+    val voiceSearch = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            result.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)
+                ?.firstOrNull { it.isNotBlank() }?.let(::submitSearch)
+        }
     }
     fun back() {
         if (railPreviewOrigin != null && railOwnsFocus) {
@@ -328,6 +350,7 @@ private fun TwitchApp() {
                 // Only explicit commit/back owns the preview origin. Removing an offline
                 // quick channel may briefly report false before its neighbour gains focus.
                 onFocusOwnership={ owns -> railOwnsFocus=owns },
+                allowExpand=userNavigated,
                 onChannelFocusChanged={focusedRailChannelId=it},
                 onPreview={ section -> if(userNavigated && route.kind != section) {
                     if(railPreviewOrigin==null) railPreviewOrigin=route
@@ -359,7 +382,7 @@ private fun TwitchApp() {
                     AccountScreen(auth, settings.animationsEnabled, onBack={back()}, profile=accountProfile)
                 } else if(route.kind=="rail-channel" && railChannelPreview != null) {
                     SidebarChannelPreview(railChannelPreview!!, settings.cardPreviewEnabled && focusedRailChannelId==railChannelPreview?.id,
-                        settings.previewSoundEnabled) { liveSources.preview(it.login) }
+                        settings.previewSoundEnabled, settings.animationsEnabled, latestRailVideo) { liveSources.preview(it.login) }
                 } else if(route.kind in setOf("following", "recordings") && !authState.loggedIn) {
                     MessageScreen(if(route.kind=="following") "Каналы" else "Записи",
                         "Войдите в Twitch, чтобы видеть свои каналы и их записи.", "Войти", autoFocus=!railOwnsFocus || !userNavigated) {
@@ -372,43 +395,49 @@ private fun TwitchApp() {
                         Text("Загрузка каналов…",color=TvColors.Muted)
                     }
                 } else if(isFollowing && followingState.initialized && channels.isEmpty() && followingState.error==null) {
-                    MessageScreen("Каналы", "Здесь появятся каналы, которые вы отслеживаете в Twitch.", "Обновить",
+                    MessageScreen("Каналы", "Здесь появятся каналы, которые вы отслеживаете в Twitch.", null,
                         autoFocus=!railOwnsFocus || !userNavigated) { refreshFollowing() }
                 } else {
                     if(route.kind=="search") {
                         val searchFieldFocus = remember { FocusRequester() }
-                        val searchButtonFocus = remember { FocusRequester() }
-                        LaunchedEffect(route.key, catalogEntryGeneration) {
-                            if (route.value.isBlank() && !userNavigated) {
+                        val noMatches = page.initialized && !page.loading && page.error == null && when (searchFilter) {
+                            SearchFilter.All -> page.items.isEmpty()
+                            SearchFilter.Channels -> channels.isEmpty()
+                            SearchFilter.Categories -> categories.isEmpty()
+                            SearchFilter.Recordings -> videos.isEmpty()
+                        }
+                        LaunchedEffect(route.key, catalogEntryGeneration, noMatches) {
+                            if ((route.value.isBlank() || noMatches) && !userNavigated) {
                                 withFrameNanos { }
                                 searchFieldFocus.requestFocus()
                             }
                         }
-                        Row(Modifier.fillMaxWidth().padding(start=24.dp,end=if(settings.showClock) 112.dp else 24.dp,top=8.dp,bottom=8.dp),horizontalArrangement=Arrangement.spacedBy(14.dp),verticalAlignment=Alignment.CenterVertically) {
-                            OutlinedTextField(value=query,onValueChange={query=it.take(100)},singleLine=true,
-                                colors=androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor=TvColors.Text, unfocusedTextColor=TvColors.Text,
-                                    cursorColor=TvColors.Link, focusedBorderColor=TvColors.Accent,
-                                    unfocusedBorderColor=TvColors.Border, focusedLabelColor=TvColors.Link,
-                                    unfocusedLabelColor=TvColors.Muted),
-                                label={androidx.compose.material3.Text("Название канала")},
-                                modifier=Modifier.weight(1f).focusRequester(searchFieldFocus).onPreviewKeyEvent { event ->
-                                    if (event.nativeKeyEvent.keyCode==android.view.KeyEvent.KEYCODE_DPAD_DOWN) {
-                                        if (event.nativeKeyEvent.action==android.view.KeyEvent.ACTION_DOWN) searchButtonFocus.requestFocus()
-                                        true
-                                    } else false
-                                },
-                                keyboardOptions=KeyboardOptions(imeAction=ImeAction.Search),keyboardActions=KeyboardActions(onSearch={navigate(Route("search",query,"Результаты поиска"),false)}))
-                            TvAction("Найти",{navigate(Route("search",query,"Результаты поиска"),false)},
-                                Modifier.focusRequester(searchButtonFocus).focusProperties { up=searchFieldFocus })
+                        key(route.value) {
+                        SearchHeader(query, { query = it }, ::submitSearch,
+                            fieldFocus = searchFieldFocus,
+                            filter = searchFilter,
+                            onFilterChange = { searchFilter = it },
+                            onFilterFocus = { searchFiltersFocused = it },
+                            modifier = Modifier.fillMaxWidth().padding(start = 24.dp,
+                                end = if (settings.showClock) 112.dp else 24.dp, top = 16.dp, bottom = 8.dp),
+                            onVoice = {
+                                voiceUnavailable = false
+                                try {
+                                    voiceSearch.launch(android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                                        .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                        .putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                                        .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Поиск в Twitch"))
+                                } catch (_: android.content.ActivityNotFoundException) { voiceUnavailable = true }
+                            })
                         }
+                        if (voiceUnavailable) Text("Голосовой ввод недоступен на этом устройстве. Введите запрос с клавиатуры.",
+                            Modifier.padding(horizontal = 24.dp), color = TvColors.Muted, fontSize = 14.sp)
                     }
                     channel?.let { ch ->
                         ChannelHeader(ch)
                         Row(Modifier.padding(horizontal=24.dp,vertical=8.dp),horizontalArrangement=Arrangement.spacedBy(14.dp)) {
                             if(ch.live) TvAction("Смотреть эфир",{openChannel(ch)})
                             TvAction("Клипы",{navigate(Route("clips",ch.login,"Клипы · ${ch.name}"))})
-                            TvAction("Назад",{back()})
                         }
                     }
                     Box(Modifier.weight(1f)) { catalogState.SaveableStateProvider(route.key) { key(pager) {
@@ -416,17 +445,20 @@ private fun TwitchApp() {
                             busy=if(isFollowing) followingState.loading || !followingState.initialized && followingState.error==null else page.loading || !page.initialized,
                             error=if(isFollowing) followingState.error else page.error,
                             selectedKey=selections[route.key],onChannel={openChannel(it)},
-                            onCategory={navigate(Route("category",it.id,it.name))},
+                            onCategory={navigate(Route("category",it.id,it.name,it.imageUrl))},
                             onVideo={watching=Watching(it.id,it.kind,it.channelLogin,it.title,it.channelLogin)},
                             onRetry={ if(isFollowing) refreshFollowing() else { if (!page.hasMore) pager.reset(); loadMore() } },
                             onFocused={selections[route.key]=it},
                             hasMore=!isFollowing && page.hasMore,onLoadMore={loadMore()},limitReached=!isFollowing && page.limitReached,
-                            onRefresh={if(isFollowing) refreshFollowing() else {pageJob?.cancel();pager.reset();loadMore()}},
+                            categoryArt=route.categoryArt,
+                            searchQuery=route.value.takeIf { route.kind == "search" }, searchFilter=searchFilter,
+                            animationsEnabled=settings.animationsEnabled,
+                            loadLatestVideo=if (isFollowing) ({ login -> repository.videos(login).firstOrNull() }) else null,
                             guestLimited=!authState.loggedIn && route.kind in setOf("streams","category","categories","channel","clips"),
                             revision=page.revision + catalogEntryGeneration,
                             previewEnabled=settings.cardPreviewEnabled, previewSoundEnabled=settings.previewSoundEnabled,
                             resolvePreview={ liveSources.preview(it.login) },
-                            allowFocusRestore=(!railOwnsFocus || !userNavigated) && (route.kind!="search" || route.value.isNotBlank()),
+                            allowFocusRestore=(!railOwnsFocus || !userNavigated) && (route.kind!="search" || route.value.isNotBlank() && !searchFiltersFocused),
                             onChannelDetails={navigate(Route("channel",it.login,it.name))})
                     } } }
                 }
@@ -446,6 +478,12 @@ private fun TwitchApp() {
                 SettingsScreen(settings,onSave={settingsStore.save(it)},onBack={closeSettings()},
                     onCheckUpdates={aboutPage="updates";aboutOpen=true},
                     onAccount={accountOpen=true},onAbout={aboutPage="author";aboutOpen=true},
+                    updateState=updateState, onAboutFocused={
+                        if (updater.state.value.status == "idle") scope.launch {
+                            updater.check(context.getSharedPreferences("updates", android.content.Context.MODE_PRIVATE)
+                                .getBoolean("testChannel", true))
+                        }
+                    },
                     accountProfile=accountProfile, accountDisplayName=authState.displayName.takeIf { authState.loggedIn }, onNotificationExampleSound={scope.launch { playLiveNotificationSound() }})
             }
         }
@@ -459,10 +497,12 @@ private fun TwitchApp() {
             else AuthorScreen(onBack={aboutOpen=false})
         }
         if(exitOpen) Box(Modifier.fillMaxSize().background(TvColors.Background.copy(alpha=.96f)),contentAlignment=Alignment.Center) {
+            val stayFocus = remember { FocusRequester() }
+            LaunchedEffect(Unit) { withFrameNanos { }; stayFocus.requestFocus() }
             BackHandler { exitOpen=false }
             Column(verticalArrangement=Arrangement.spacedBy(20.dp)) {
                 Text("Выйти из Twitch 2.0?",color=TvColors.Text,fontSize=26.sp)
-                TvAction("Остаться",{exitOpen=false})
+                TvAction("Остаться",{exitOpen=false}, Modifier.focusRequester(stayFocus))
                 TvAction("Выйти",{(context as? android.app.Activity)?.finish()})
             }
         }
@@ -555,11 +595,17 @@ private fun TwitchApp() {
         catch(e:Exception){error=if(e is TwitchException)e.message else "Не удалось подключиться. Проверьте сеть и повторите."}
         finally{resolving=false}
     }
+    val replay = if (target.kind == "vod" && chatNeeded && !resolving && error == null)
+        rememberVodChat(target.id, session, repository) else ReplayChat(emptyList(), "replay_loading")
     BackHandler(enabled=resolving||error!=null){onBack()}
     if(error!=null) MessageScreen("Видео недоступно",error!!,"Повторить"){retry++}
     else if(resolving) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("Подключение к Twitch…",color=TvColors.Text)}
     else PlayerScreen(session,if(target.kind=="live") metadata?.title?.takeIf { it.isNotBlank() } ?: target.title else target.title,target.subtitle,onBack,
-        chatContent=if(target.kind=="live") ({previewSettings -> ChatPanel(messages,previewSettings,status=chatStatus)}) else null,
+        chatContent=when (target.kind) {
+            "live" -> { previewSettings -> ChatPanel(messages, previewSettings, status=chatStatus) }
+            "vod" -> { previewSettings -> ChatPanel(replay.messages, previewSettings, status=replay.status) }
+            else -> null
+        },
         settings=settings,onSettingsChange={store.save(it)},
         isVod=target.kind=="vod", onSpeedChange={positions.saveSpeed(target.id,it)},
         loadStoryboard=if(target.kind=="vod") ({storyboards.load(target.id)}) else null,
@@ -570,10 +616,12 @@ private fun TwitchApp() {
         onControlsVisibleChanged=onControlsVisibleChanged)
 }
 
-@Composable private fun MessageScreen(title:String,message:String,action:String,autoFocus:Boolean=true,onAction:()->Unit) {
+@Composable private fun MessageScreen(title:String,message:String,action:String?,autoFocus:Boolean=true,onAction:()->Unit) {
     val first=remember { FocusRequester() }
     LaunchedEffect(autoFocus) { if(autoFocus) first.requestFocus() }
     Column(Modifier.fillMaxSize().padding(40.dp),verticalArrangement=Arrangement.spacedBy(24.dp)) {
-        Text(title,fontSize=28.sp,color=TvColors.Text);Text(message,color=TvColors.Muted,fontSize=18.sp);TvAction(action,onAction,modifier=Modifier.focusRequester(first))
+        Text(title,fontSize=28.sp,color=TvColors.Text);Text(message, modifier=if(action == null) Modifier.focusRequester(first).focusable() else Modifier,
+            color=TvColors.Muted,fontSize=18.sp)
+        if(action != null) TvAction(action,onAction,modifier=Modifier.focusRequester(first))
     }
 }

@@ -2,6 +2,8 @@ package com.oprawa.twitch20.ui
 
 import android.view.KeyEvent as AndroidKeyEvent
 import android.view.ViewConfiguration
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -37,6 +39,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -94,7 +97,11 @@ fun CatalogScreen(
     onChannelDetails: (Channel) -> Unit = onChannel,
     hasMore: Boolean = false,
     onLoadMore: () -> Unit = {},
-    onRefresh: () -> Unit = onRetry,
+    categoryArt: String = "",
+    searchQuery: String? = null,
+    searchFilter: SearchFilter = SearchFilter.All,
+    animationsEnabled: Boolean = true,
+    loadLatestVideo: (suspend (String) -> Video?)? = null,
     limitReached: Boolean = false,
     guestLimited: Boolean = false,
     revision: Long = 0,
@@ -104,7 +111,8 @@ fun CatalogScreen(
     resolvePreview: (suspend (Channel) -> String)? = null,
 ) {
     val mayRestoreFocus by rememberUpdatedState(allowFocusRestore)
-    val entries = buildList {
+    val motion = rememberPreviewMotionEnabled(animationsEnabled)
+    val allEntries = buildList {
         channels.forEach { channel ->
             add(CatalogEntry("channel:${channel.id}", channel.name, if (channel.live) channel.title else "Записи и клипы канала",
                 channel.category, channel.imageUrl,
@@ -123,12 +131,29 @@ fun CatalogScreen(
                 typeLabel = if (video.kind == "clip") "Клип" else "Запись"))
         }
     }
+    val showSections = searchQuery != null && searchFilter == SearchFilter.All
+    val selectedKind = when (searchFilter) {
+        SearchFilter.All -> null
+        SearchFilter.Channels -> CatalogKind.Channel
+        SearchFilter.Categories -> CatalogKind.Category
+        SearchFilter.Recordings -> CatalogKind.Video
+    }
+    val entries = if (searchQuery != null && selectedKind != null)
+        allEntries.filter { it.kind == selectedKind } else allEntries
     val keys = entries.map { it.key }
     val state = rememberLazyGridState()
     // The expanding rail remeasures card heights while this catalog is unfocused.
     // Keep the last browsing viewport separately from LazyGrid's live scroll anchor.
     var suspendedIndex by rememberSaveable { mutableStateOf(-1) }
     var suspendedOffset by rememberSaveable { mutableStateOf(0) }
+    var previousFilter by rememberSaveable { mutableStateOf(searchFilter) }
+    LaunchedEffect(searchFilter) {
+        if (searchQuery != null && previousFilter != searchFilter) {
+            previousFilter = searchFilter
+            suspendedIndex = -1
+            state.requestScrollToItem(0)
+        }
+    }
     var gridHasFocus by remember { mutableStateOf(false) }
     val requesterCache = remember { mutableMapOf<String, FocusRequester>() }
     val requesters = remember(keys) {
@@ -138,6 +163,15 @@ fun CatalogScreen(
     var restored by remember(revision) { mutableStateOf(false) }
     var focusedEntryKey by remember { mutableStateOf<String?>(null) }
     val focusedChannel = channels.firstOrNull { "channel:${it.id}" == focusedEntryKey }
+    var latest by remember(focusedChannel?.id) { mutableStateOf<Video?>(null) }
+    LaunchedEffect(focusedChannel?.id, loadLatestVideo != null, previewEnabled) {
+        val login = focusedChannel?.takeUnless { it.live }?.login ?: return@LaunchedEffect
+        if (!previewEnabled) return@LaunchedEffect
+        kotlinx.coroutines.delay(650)
+        latest = try { loadLatestVideo?.invoke(login) }
+            catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch (_: Exception) { null }
+    }
     val preview = rememberCatalogVideoPreview(focusedChannel, previewEnabled,
         state.isScrollInProgress, resolvePreview, previewSoundEnabled)
 
@@ -163,7 +197,7 @@ fun CatalogScreen(
         if (entries.isNotEmpty() && !restored) {
             val index = keys.indexOf(selectedKey).coerceAtLeast(0)
             withFrameNanos { }
-            if (state.layoutInfo.visibleItemsInfo.none { it.key == keys[index] }) state.scrollToItem(index)
+            if (state.layoutInfo.visibleItemsInfo.none { it.key == keys[index] }) state.scrollToItem(if (showSections) index + entries[index].kind.ordinal + 1 else index)
             // The target must be composed after scrolling before focus can be restored.
             withFrameNanos { }
             withFrameNanos { }
@@ -173,28 +207,34 @@ fun CatalogScreen(
     }
     // OK on an already previewed rail section must enter its restored card as well.
     LaunchedEffect(allowFocusRestore) {
-        if (allowFocusRestore && restored && keys.isNotEmpty()) {
+        if (searchQuery == null && allowFocusRestore && restored && keys.isNotEmpty()) {
             withFrameNanos { }
             val index = keys.indexOf(selectedKey).coerceAtLeast(0)
             requesters[keys[index]]?.requestFocus()
         }
     }
     LaunchedEffect(busy, error, entries.isEmpty(), allowFocusRestore) {
-        if (!busy && entries.isEmpty()) {
+        if (!busy && entries.isEmpty() && (searchQuery == null || error != null)) {
             withFrameNanos { }
             if (mayRestoreFocus) emptyRequester.requestFocus()
         }
     }
 
     Column(Modifier.fillMaxSize().background(TvColors.Background).padding(horizontal = 24.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 4.dp, end = 84.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically) {
-            Text(title, fontSize = 25.sp, fontWeight = FontWeight.Bold,
-                color = TvColors.Text, modifier = Modifier.weight(1f), maxLines = 1,
-                overflow = TextOverflow.Ellipsis)
-            if (busy) Text("Обновление…", fontSize = 12.sp, color = TvColors.Muted)
-            else if (entries.isNotEmpty()) TvAction("Обновить", onRefresh, Modifier.height(36.dp))
+        if (searchQuery == null) {
+            Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 4.dp, end = 84.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                if (categoryArt.isNotBlank()) {
+                    AsyncImage(categoryArt, null, Modifier.size(42.dp, 56.dp).clip(TvShapes.Control),
+                        contentScale = ContentScale.Crop)
+                    Spacer(Modifier.size(14.dp))
+                }
+                Text(title, fontSize = 25.sp, fontWeight = FontWeight.Bold,
+                    color = TvColors.Text, modifier = Modifier.weight(1f), maxLines = 1,
+                    overflow = TextOverflow.Ellipsis)
+                if (busy) Text("Обновление…", fontSize = 12.sp, color = TvColors.Muted)
+            }
         }
         Spacer(Modifier.height(12.dp))
         if (error != null && entries.isNotEmpty()) {
@@ -209,13 +249,18 @@ fun CatalogScreen(
         if (entries.isEmpty()) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(when { busy -> "Загружаем…"; error != null -> error;
+                Text(when {
+                    searchQuery?.isBlank() == true -> "Введите запрос или воспользуйтесь микрофоном"
+                    busy -> "Загружаем…"
+                    error != null -> error
+                    searchQuery != null -> searchFilter.emptyMessage
                     hasMore -> "В этой части списка записей нет"; else -> "Здесь пока ничего нет" },
                     color = if (error == null) TvColors.Muted else TvColors.Error,
-                    fontSize = 18.sp, modifier = Modifier.padding(horizontal = 32.dp), maxLines = 4)
-                if (!busy) {
+                    fontSize = 18.sp, modifier = Modifier.padding(horizontal = 32.dp).then(
+                        if (searchQuery == null && !busy && error == null && !hasMore) Modifier.focusRequester(emptyRequester).focusable() else Modifier), maxLines = 4)
+                if (!busy && (error != null || hasMore)) {
                     Spacer(Modifier.height(20.dp))
-                    TvAction(when { error != null -> "Повторить"; hasMore -> "Искать дальше"; else -> "Обновить" },
+                    TvAction(if (error != null) "Повторить" else "Искать дальше",
                         if (error == null && hasMore) onLoadMore else onRetry,
                         Modifier.focusRequester(emptyRequester))
                 }
@@ -245,11 +290,27 @@ fun CatalogScreen(
                         }
                         gridHasFocus = focus.hasFocus
                     }.focusGroup()) {
-                items(entries, key = { it.key }) { entry ->
-                    CatalogCard(entry, imageHeight, requesters.getValue(entry.key), onFocused,
-                        preview?.takeIf { "channel:${it.channelId}" == entry.key }) { hasFocus ->
-                        if (hasFocus) focusedEntryKey = entry.key
-                        else if (focusedEntryKey == entry.key) focusedEntryKey = null
+                val sections = if (showSections) CatalogKind.entries.map { kind -> entries.filter { it.kind == kind } }
+                    else listOf(entries)
+                sections.forEachIndexed { index, section ->
+                    if (showSections) item(key = "section:$index", span = { GridItemSpan(maxLineSpan) }) {
+                        Column {
+                            Text(listOf("Каналы", "Категории", "Записи")[index], color = TvColors.Text,
+                                fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+                            if (section.isEmpty()) Text("Нет результатов", color = TvColors.Muted, fontSize = 14.sp)
+                            else if (index == 2) Text("Записи Twitch по вашему запросу", color = TvColors.Muted, fontSize = 13.sp)
+                        }
+                    }
+                    items(section, key = { it.key }) { entry ->
+                        val archive = latest?.takeIf { entry.key == focusedEntryKey && previewEnabled }
+                        val card = archive?.let { entry.copy(
+                            image = it.imageUrl, description = it.title,
+                            category = videoDate(it).ifBlank { "Последняя запись" }) } ?: entry
+                        CatalogCard(card, imageHeight, requesters.getValue(entry.key), onFocused,
+                            preview?.takeIf { "channel:${it.channelId}" == entry.key }, motion) { hasFocus ->
+                            if (hasFocus) focusedEntryKey = entry.key
+                            else if (focusedEntryKey == entry.key) focusedEntryKey = null
+                        }
                     }
                 }
                 item(key = "catalog-footer", span = { GridItemSpan(maxLineSpan) }) {
@@ -260,16 +321,8 @@ fun CatalogScreen(
                             else -> null
                         }
                         note?.let { Text(it, color = TvColors.Muted, fontSize = 14.sp) }
-                        TvAction(when {
-                            busy -> "Загрузка…"
-                            error != null -> "Повторить загрузку"
-                            hasMore -> "Загрузить ещё"
-                            else -> "Обновить список"
-                        }, {
-                            if (!busy) {
-                                if (hasMore) onLoadMore() else onRefresh()
-                            }
-                        })
+                        if (hasMore && error == null && !busy) TvAction("Загрузить ещё", onLoadMore)
+
                     }
                 }
             }
@@ -280,10 +333,13 @@ fun CatalogScreen(
 
 @Composable
 private fun CatalogCard(entry: CatalogEntry, imageHeight: Dp, requester: FocusRequester,
-    onFocused: (String) -> Unit, preview: CatalogPreview?, onFocusState: (Boolean) -> Unit) {
+    onFocused: (String) -> Unit, preview: CatalogPreview?, animationsEnabled: Boolean, onFocusState: (Boolean) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     var longActivated by remember { mutableStateOf(false) }
     val shape = TvShapes.Control
+    val animate = animationsEnabled
+    val scale by animateFloatAsState(if (animate && focused && entry.kind == CatalogKind.Category) 1.025f else 1f,
+        tween(if (animate) 170 else 0), label = "category focus")
     Column(Modifier.fillMaxWidth()
         .focusRequester(requester)
         .onFocusChanged {
@@ -318,6 +374,7 @@ private fun CatalogCard(entry: CatalogEntry, imageHeight: Dp, requester: FocusRe
             if (entry.details != null) onLongClick("Открыть канал") { entry.details.invoke(); true }
         }
         .focusable()
+        .graphicsLayer { scaleX = scale; scaleY = scale }
         .background(if (focused) TvColors.Raised else TvColors.Surface, shape)
         .border(2.dp, if (focused) TvColors.Focus else TvColors.Background, shape)
         .padding(3.dp)) {
@@ -326,12 +383,12 @@ private fun CatalogCard(entry: CatalogEntry, imageHeight: Dp, requester: FocusRe
             // A real image may be unavailable; keep a quiet stable slot, never a fake stream image.
             Text(entry.name.take(2).uppercase(), modifier = Modifier.align(Alignment.Center),
                 fontSize = 28.sp, color = TvColors.Muted)
-            if (entry.kind == CatalogKind.Channel && entry.typeLabel != "В ЭФИРЕ" && entry.avatar.isNotBlank())
+            if (entry.kind == CatalogKind.Channel && entry.typeLabel != "В ЭФИРЕ" && entry.avatar.isNotBlank() && entry.image.isBlank())
                 AsyncImage(entry.avatar, null, Modifier.align(Alignment.Center).size(78.dp).clip(CircleShape),
                     contentScale = ContentScale.Crop)
             else AsyncImage(model = entry.image, contentDescription = null,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-            if (preview != null) CatalogVideoPreview(preview, Modifier.fillMaxSize())
+            if (preview != null) CatalogVideoPreview(preview, Modifier.fillMaxSize(), animationsEnabled)
             if (entry.typeLabel.isNotBlank() && entry.typeLabel != "В ЭФИРЕ") Text(entry.typeLabel,
                 Modifier.align(Alignment.TopStart).padding(6.dp)
                     .background(TvColors.Background.copy(alpha = .9f), RoundedCornerShape(3.dp))

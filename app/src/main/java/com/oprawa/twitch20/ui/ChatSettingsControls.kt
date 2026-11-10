@@ -6,10 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -36,34 +33,21 @@ internal fun ChatSettingsControls(
     onAccount: (() -> Unit)? = null,
     onAbout: (() -> Unit)? = null,
     accountName: String? = null,
-    onNotificationExample: (() -> Unit)? = null,
+    onNotificationSound: () -> Unit = {},
 ) {
-    var expanded by remember(state.page) { mutableStateOf<String?>(null) }
-    var returningTo by remember(state.page) { mutableStateOf<String?>(null) }
     val launchers = remember(state.page) { mutableMapOf<String, FocusRequester>() }
-    val editorFocus = remember { FocusRequester() }
-    BackHandler(enabled = state.page != SettingsEditorPage.OVERVIEW || expanded != null) {
-        when {
-            expanded != null -> {
-                returningTo = expanded
-                expanded?.let(state::focusSetting)
-                expanded = null
-            }
-            onCloseProfile != null -> onCloseProfile()
-            else -> state.back()
-        }
+    BackHandler(enabled = state.page != SettingsEditorPage.OVERVIEW) {
+        if (onCloseProfile != null) onCloseProfile() else state.back()
     }
-    LaunchedEffect(state.page, expanded) {
+    LaunchedEffect(state.page) {
         onPreviewMode(when (state.page) {
             SettingsEditorPage.OVERLAY -> ChatMode.OVERLAY
             SettingsEditorPage.THEATER -> ChatMode.THEATER
             else -> null
         })
         withFrameNanos { }
-        val key = returningTo ?: if (state.page == SettingsEditorPage.OVERVIEW) state.overviewFocus else state.focusedSetting
-        val restore = if (expanded != null) editorFocus else launchers[key] ?: firstFocus
-        restore.requestFocus()
-        returningTo = null
+        val key = if (state.page == SettingsEditorPage.OVERVIEW) state.overviewFocus else state.focusedSetting
+        (launchers[key] ?: firstFocus).requestFocus()
     }
 
     @Composable
@@ -80,18 +64,13 @@ internal fun ChatSettingsControls(
     fun Parameter(key: String, label: String, value: String, first: Boolean = false, change: (Int) -> Unit) {
         val created = remember(key, first) { if (first) firstFocus else FocusRequester() }
         val focus = launchers.getOrPut(key) { created }
-        val open = expanded == key
-        SettingsPageLink(label, Modifier.focusRequester(focus), summary = value, expanded = open,
-            onFocused = { state.focusSetting(key) }) { expanded = if (open) null else key }
-        if (open) {
-            SettingChoice("Значение", value, Modifier.padding(start = 12.dp).focusRequester(editorFocus),
-                accessibilityLabel = label, onConfirm = { returningTo = key; expanded = null }, change = change)
-        }
+        SettingChoice(label, value, Modifier.focusRequester(focus),
+            onFocused = { state.focusSetting(key) }, change = change)
     }
 
     @Composable
     fun Toggle(key: String, label: String, enabled: Boolean, first: Boolean = false, change: () -> Unit) {
-        Parameter(key, label, enabledLabel(enabled), first) { change() }
+        Parameter(key, label, enabledLabel(enabled), first) { if ((it > 0) != enabled) change() }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -99,7 +78,7 @@ internal fun ChatSettingsControls(
             SettingsEditorPage.OVERVIEW -> {
                 if (onAccount != null) Link("ACCOUNT", "Аккаунт", first = true,
                     summary = accountName ?: "Гость", action = onAccount)
-                val previewStatus = if (settings.cardPreviewEnabled) "Предпросмотр вкл." else "Предпросмотр выкл."
+                val previewStatus = previewModeLabel(settings)
                 val animationStatus = if (settings.animationsEnabled) "анимации вкл." else "анимации выкл."
                 val clockStatus = if (settings.showClock) "часы вкл." else "часы скрыты"
                 Link("INTERFACE", "Интерфейс", first = onAccount == null,
@@ -123,35 +102,28 @@ internal fun ChatSettingsControls(
             }
             SettingsEditorPage.VIEWING -> {
                 SettingsSectionTitle("Просмотр")
-                Link("OVERLAY", "Чат поверх видео", first = true, summary = if (settings.overlayEnabled)
-                    overlaySizeLabel(settings.overlaySize) else "Выключен") { state.open(SettingsEditorPage.OVERLAY) }
-                Link("THEATER", "Кинотеатр", summary = if (settings.theaterEnabled)
-                    textSizeLabel(settings.theaterStyle.textSizeSp) else "Выключен") { state.open(SettingsEditorPage.THEATER) }
+                Link("OVERLAY", "Overlay", first = true, summary = overlaySizeLabel(settings.overlaySize)) { state.open(SettingsEditorPage.OVERLAY) }
+                Link("THEATER", "Кинотеатр", summary = textSizeLabel(settings.theaterStyle.textSizeSp)) { state.open(SettingsEditorPage.THEATER) }
             }
             SettingsEditorPage.OVERLAY, SettingsEditorPage.THEATER -> {
                 val mode = if (state.page == SettingsEditorPage.OVERLAY) ChatMode.OVERLAY else ChatMode.THEATER
                 SettingsSectionTitle(chatModeLabel(mode))
-                Toggle("ENABLED", "Показывать", settings.chatMode == mode, first = true) {
-                    onChange(settings.toggleChat(mode))
-                }
                 val choices = if (mode == ChatMode.OVERLAY) listOf(SettingsChoice.OVERLAY_SIZE, SettingsChoice.TEXT_SIZE,
                     SettingsChoice.OPACITY, SettingsChoice.POSITION) else listOf(SettingsChoice.TEXT_SIZE)
                 for (choice in choices) {
                     val selection = SettingsSelection(settings, mode, choice)
-                    Parameter(choice.name, selection.title, selection.options[selection.selectedIndex].label) {
+                    Parameter(choice.name, selection.title, selection.options[selection.selectedIndex].label, first = choice == choices.first()) {
                         onChange(selection.step(it))
                     }
                 }
             }
             SettingsEditorPage.INTERFACE -> {
                 SettingsSectionTitle("Интерфейс")
-                Toggle("CARD_PREVIEW", "Предпросмотр эфиров", settings.cardPreviewEnabled, first = true) {
-                    onChange(settings.copy(cardPreviewEnabled = !settings.cardPreviewEnabled))
+                Parameter("CARD_PREVIEW", "Предпросмотр", previewModeLabel(settings), first = true) { delta ->
+                    val mode = (previewModeIndex(settings) + delta).coerceIn(0, 2)
+                    onChange(settings.copy(cardPreviewEnabled = mode != 0, previewSoundEnabled = mode == 2))
                 }
-                Toggle("PREVIEW_SOUND", "Звук предпросмотра", settings.previewSoundEnabled) {
-                    onChange(settings.copy(previewSoundEnabled = !settings.previewSoundEnabled))
-                }
-                Toggle("ANIMATIONS", "Анимации", settings.animationsEnabled) {
+                Toggle("ANIMATIONS", "Анимации интерфейса и примеров", settings.animationsEnabled) {
                     onChange(settings.copy(animationsEnabled = !settings.animationsEnabled))
                 }
                 Link("CLOCK", "Часы", summary = if (settings.showClock) clockStyleLabel(settings.clockStyle) else "Скрыты") {
@@ -178,9 +150,10 @@ internal fun ChatSettingsControls(
                     onChange(settings.copy(followNotificationsEnabled = !settings.followNotificationsEnabled))
                 }
                 Toggle("NOTIFICATION_SOUND", "Звук уведомлений", settings.notificationSoundEnabled) {
-                    onChange(settings.copy(notificationSoundEnabled = !settings.notificationSoundEnabled))
+                    val enabled = !settings.notificationSoundEnabled
+                    onChange(settings.copy(notificationSoundEnabled = enabled))
+                    if (enabled) onNotificationSound()
                 }
-                if (onNotificationExample != null) Link("NOTIFICATION_EXAMPLE", "Показать пример", action = onNotificationExample)
             }
         }
     }
@@ -196,6 +169,18 @@ internal fun enabledLabel(enabled: Boolean) = if (enabled) "Включён" else
 
 internal fun chatModeLabel(mode: ChatMode) = when (mode) {
     ChatMode.OFF -> "Без чата"
-    ChatMode.OVERLAY -> "Чат поверх видео"
+    ChatMode.OVERLAY -> "Overlay"
     ChatMode.THEATER -> "Кинотеатр"
+}
+
+
+internal fun previewModeIndex(settings: AppSettings) = when {
+    !settings.cardPreviewEnabled -> 0
+    settings.previewSoundEnabled -> 2
+    else -> 1
+}
+internal fun previewModeLabel(settings: AppSettings) = when (previewModeIndex(settings)) {
+    0 -> "Без предпросмотра"
+    1 -> "Без звука"
+    else -> "Со звуком"
 }

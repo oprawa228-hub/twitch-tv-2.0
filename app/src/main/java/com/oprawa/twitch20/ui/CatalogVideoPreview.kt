@@ -233,12 +233,16 @@ internal fun rememberCatalogVideoPreview(
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
-internal fun CatalogVideoPreview(preview: CatalogPreview, modifier: Modifier = Modifier) {
+internal fun CatalogVideoPreview(preview: CatalogPreview, modifier: Modifier = Modifier,
+    animationsEnabled: Boolean = true) {
+    val motion = rememberPreviewMotionEnabled(animationsEnabled)
+    val reveal by androidx.compose.animation.core.animateFloatAsState(if (preview.rendered) 1f else 0f,
+        androidx.compose.animation.core.tween(if (motion) 240 else 0), label = "preview first frame")
     // Keep the poster visible until a real decoded frame exists. TextureView follows card
     // clipping and scrolling; the surface has no focus target and owns no MediaSession.
     ContentFrame(
         player = preview.player,
-        modifier = modifier.graphicsLayer { alpha = if (preview.rendered) 1f else 0f },
+        modifier = modifier.graphicsLayer { alpha = reveal },
         surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
         contentScale = ContentScale.Fit,
         shutter = {},

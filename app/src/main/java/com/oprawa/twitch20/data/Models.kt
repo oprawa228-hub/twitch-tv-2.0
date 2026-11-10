@@ -31,6 +31,7 @@ data class Video(
     val kind: String,
     val channelLogin: String,
     val viewers: Int = 0,
+    val createdAt: String = "",
 )
 
 enum class TwitchError { NETWORK, SERVICE, ACCESS_DENIED, UNAVAILABLE, RATE_LIMITED }

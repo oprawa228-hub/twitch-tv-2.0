@@ -192,7 +192,7 @@ private val notesBullet = Regex("""^(\s*)[-+*]\s+""")
 private val notesLink = Regex("""!?\[([^\]\r\n]+)\]\((?:[^()\r\n]|\([^()\r\n]*\))*\)""")
 private val notesEmphasis = Regex("""(\*\*|__|`)(.+?)\1""")
 
-private fun formatReleaseNotes(markdown: String): String = markdown.lineSequence().joinToString("\n") { line ->
+internal fun formatReleaseNotes(markdown: String): String = markdown.lineSequence().joinToString("\n") { line ->
     val heading = notesHeading.matchEntire(line)?.groupValues?.get(1)
     val text = heading ?: notesBullet.replaceFirst(line, "$1• ")
     notesEmphasis.replace(notesLink.replace(text) { it.groupValues[1] }) { it.groupValues[2] }

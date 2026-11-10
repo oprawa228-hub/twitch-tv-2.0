@@ -6,6 +6,8 @@ import com.oprawa.twitch20.auth.StoredSession
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
@@ -60,6 +62,50 @@ class TwitchRepository(
         return (0 until items.length()).map { TwitchJson.channel(items.getJSONObject(it)) }
     }
 
+    suspend fun searchCatalog(query: String): List<CatalogItem> = coroutineScope {
+        if (query.isBlank()) return@coroutineScope emptyList()
+        suspend fun rows(index: String, field: String, selection: String): List<JSONObject>? = try {
+            val data = gql("""
+                query(${'$'}term:String!) {
+                  searchFor(userQuery:${'$'}term, platform:"web", options:{targets:[{index:$index}]}) {
+                    $field { items { $selection } }
+                  }
+                }
+            """.trimIndent(), JSONObject().put("term", query.trim().take(100)))
+            val items = data.optJSONObject("searchFor")?.optJSONObject(field)?.optJSONArray("items")
+                ?: throw TwitchException(TwitchError.SERVICE)
+            (0 until items.length().coerceAtMost(30)).mapNotNull(items::optJSONObject)
+        } catch (_: TwitchException) { null }
+
+        // Twitch's public search returns only the first requested index on some queries.
+        val channels = async { rows("CHANNEL", "channels", CHANNEL_FIELDS) }
+        val games = async { rows("GAME", "games", "id name boxArtURL(width:285,height:380)") }
+        val videos = async { rows("VOD", "videos",
+            "id title lengthSeconds previewThumbnailURL(width:640,height:360) owner { login } viewCount createdAt") }
+        val foundChannels = channels.await()
+        val foundGames = games.await()
+        val foundVideos = videos.await()
+        if (foundChannels == null && foundGames == null && foundVideos == null)
+            throw TwitchException(TwitchError.SERVICE)
+        buildList {
+            foundChannels.orEmpty().forEach { add(CatalogItem.Stream(TwitchJson.channel(it))) }
+            foundGames.orEmpty().forEach { add(CatalogItem.Game(Category(TwitchJson.required(it, "id"),
+                TwitchJson.required(it, "name"), TwitchJson.text(it, "boxArtURL")))) }
+            foundVideos.orEmpty().forEach {
+                val login = it.optJSONObject("owner")?.let { owner -> TwitchJson.text(owner, "login") }.orEmpty()
+                if (login.isNotBlank()) add(CatalogItem.Recording(vod(it, login)))
+            }
+        }
+    }
+
+    internal suspend fun replayChat(id: String, offset: Int): VodChatPage =
+        VodChatData.load(id, offset, ::gql)
+
+    private fun vod(row: JSONObject, login: String) =
+        Video(TwitchJson.required(row, "id"), TwitchJson.text(row, "title"), TwitchJson.text(row, "previewThumbnailURL"),
+            row.optInt("lengthSeconds", 0).coerceAtLeast(0), "vod", login,
+            row.optInt("viewCount", 0).coerceAtLeast(0), TwitchJson.text(row, "createdAt"))
+
     suspend fun channel(login: String): Channel {
         val data = gql("query(\$login:String!) { user(login:\$login) { $CHANNEL_FIELDS description offlineImageURL } }", JSONObject().put("login", login))
         return TwitchJson.channel(data.optJSONObject("user") ?: throw TwitchException(TwitchError.UNAVAILABLE))
@@ -69,13 +115,10 @@ class TwitchRepository(
 
     suspend fun videos(login: String): List<Video> {
         val user = gql(
-            "query(\$login:String!) { user(login:\$login) { videos(first:30,sort:TIME) { edges { node { id title lengthSeconds previewThumbnailURL(width:640,height:360) viewCount } } } } }",
+            "query(\$login:String!) { user(login:\$login) { videos(first:30,sort:TIME) { edges { node { id title lengthSeconds previewThumbnailURL(width:640,height:360) viewCount createdAt } } } } }",
             JSONObject().put("login", login),
         ).optJSONObject("user") ?: throw TwitchException(TwitchError.UNAVAILABLE)
-        return TwitchJson.nodes(user.optJSONObject("videos")).map {
-            Video(TwitchJson.required(it, "id"), TwitchJson.text(it, "title"), TwitchJson.text(it, "previewThumbnailURL"),
-                it.optInt("lengthSeconds", 0).coerceAtLeast(0), "vod", login, it.optInt("viewCount", 0).coerceAtLeast(0))
-        }
+        return TwitchJson.nodes(user.optJSONObject("videos")).map { vod(it, login) }
     }
 
     suspend fun clips(login: String): List<Video> {

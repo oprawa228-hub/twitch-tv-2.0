@@ -32,7 +32,7 @@ class PlayerErrorFocusTest {
 
     @Test fun backFromClockAfterPlaybackErrorFocusesRetry() = exerciseClose("Часы", 6)
     @Test fun backFromTheaterAfterPlaybackErrorFocusesRetry() = exerciseClose("Кинотеатр", 5)
-    @Test fun backFromChatAfterPlaybackErrorFocusesRetry() = exerciseClose("Чат поверх видео", 4)
+    @Test fun backFromChatAfterPlaybackErrorFocusesRetry() = exerciseClose("Overlay", 4)
 
     @Test fun firstOkRetriesWhenErrorArrivesAfterHudWasHidden() {
         var owned: PlaybackSession? = null

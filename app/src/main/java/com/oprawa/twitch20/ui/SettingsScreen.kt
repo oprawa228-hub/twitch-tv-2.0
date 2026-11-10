@@ -81,9 +81,12 @@ fun SettingsScreen(
     accountProfile: Channel? = null,
     onNotificationExampleSound: () -> Unit = {},
     accountDisplayName: String? = accountProfile?.name,
+    updateState: com.oprawa.twitch20.update.UpdateState = com.oprawa.twitch20.update.UpdateState(),
+    onAboutFocused: () -> Unit = {},
 ) {
     val editor = rememberSettingsEditorState()
-    var notificationExample by remember(editor.page) { mutableIntStateOf(0) }
+    val aboutFocused = editor.previewTarget() == SettingsPreviewTarget.ABOUT
+    LaunchedEffect(aboutFocused) { if (aboutFocused) onAboutFocused() }
     val first = remember { FocusRequester() }
     BackHandler { if (!editor.back()) onBack() }
     Row(Modifier.fillMaxSize().background(TvColors.Background).padding(24.dp),
@@ -93,7 +96,7 @@ fun SettingsScreen(
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 ChatSettingsControls(settings, onSave, first, state = editor, onCheckUpdates = onCheckUpdates,
                     onAccount = onAccount, onAbout = onAbout, accountName = accountDisplayName,
-                    onNotificationExample = { notificationExample++ })
+                    onNotificationSound = onNotificationExampleSound)
             }
             if (editor.page == SettingsEditorPage.OVERVIEW) DinoDecoration(settings.animationsEnabled)
         }
@@ -107,7 +110,7 @@ fun SettingsScreen(
                 SettingsPreviewTarget.ACCOUNT -> "Аккаунт Twitch"
                 SettingsPreviewTarget.ABOUT -> "Twitch 2.0"
                 SettingsPreviewTarget.VIEWING -> chatModeLabel(settings.chatMode)
-                SettingsPreviewTarget.OVERLAY -> "Чат поверх видео"
+                SettingsPreviewTarget.OVERLAY -> "Overlay"
                 SettingsPreviewTarget.THEATER -> "Кинотеатр"
             }
             Text(title, color = TvColors.Text, fontSize = 21.sp, fontWeight = FontWeight.Bold,
@@ -140,18 +143,12 @@ fun SettingsScreen(
                     val mode = if (target == SettingsPreviewTarget.OVERLAY) ChatMode.OVERLAY else ChatMode.THEATER
                     val profile = preview.copy(chatMode = mode)
                     SettingsPreview(profile)
-                    Text("Текст в плеере", color = TvColors.Muted, fontSize = 13.sp,
-                        modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
-                    ChatPanel(listOf(ChatMessage("native-size", "Nova", "Заряжай сердечки!", "#bf94ff")),
-                        profile.copy(animationsEnabled = false, showClock = false), Modifier.fillMaxWidth().height(64.dp))
                     if (mode != settings.chatMode) Text("Профиль выключен · показан пример", color = TvColors.Muted, fontSize = 14.sp,
                         modifier = Modifier.padding(top = 8.dp))
                 }
-                SettingsPreviewTarget.NOTIFICATIONS -> NotificationSettingsPreview(preview, notificationExample,
-                    onNotificationExampleSound)
+                SettingsPreviewTarget.NOTIFICATIONS -> NotificationSettingsPreview(preview)
                 SettingsPreviewTarget.ACCOUNT -> AccountSettingsPreview(accountDisplayName, accountProfile?.avatarUrl)
-                SettingsPreviewTarget.ABOUT -> Text("${BuildConfig.VERSION_NAME}\nОбновления, авторы и лицензии", color = TvColors.Muted,
-                    fontSize = 17.sp, lineHeight = 25.sp)
+                SettingsPreviewTarget.ABOUT -> ReleaseOverview(updateState)
             }
         }
     }
@@ -159,10 +156,10 @@ fun SettingsScreen(
 
 @Composable
 internal fun SettingChoice(label: String, value: String, modifier: Modifier = Modifier,
-    accessibilityLabel: String = label, onConfirm: () -> Unit, change: (Int) -> Unit) {
+    onFocused: () -> Unit = {}, change: (Int) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Row(modifier.fillMaxWidth().heightIn(min = 46.dp)
-        .onFocusChanged { focused = it.isFocused }
+        .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocused() }
         .onPreviewKeyEvent { event ->
             val key = event.nativeKeyEvent
             when (key.keyCode) {
@@ -172,16 +169,13 @@ internal fun SettingChoice(label: String, value: String, modifier: Modifier = Mo
                     true
                 }
                 AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                    if (key.action == AndroidKeyEvent.ACTION_UP && !key.isCanceled) onConfirm()
                     true
                 }
                 else -> false
             }
         }
         .semantics(mergeDescendants = true) {
-            role = Role.Button
-            contentDescription = "$accessibilityLabel: $value"
-            onClick { onConfirm(); true }
+            contentDescription = "$label: $value"
         }
         .focusable()
         .background(if (focused) TvColors.Focus else TvColors.Surface, RoundedCornerShape(8.dp))
@@ -189,7 +183,7 @@ internal fun SettingChoice(label: String, value: String, modifier: Modifier = Mo
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, Modifier.weight(1f), fontSize = 16.sp, lineHeight = 20.sp, maxLines = 2,
             color = if (focused) TvColors.Background else TvColors.Text)
-        Text("‹  $value  ›", Modifier.widthIn(max = 158.dp), fontSize = 15.sp, lineHeight = 20.sp, maxLines = 2,
+        Text(if (focused) "‹  $value  ›" else value, Modifier.widthIn(max = 158.dp), fontSize = 15.sp, lineHeight = 20.sp, maxLines = 2,
             color = if (focused) TvColors.Background else TvColors.Muted)
     }
 }
@@ -241,7 +235,7 @@ private fun SettingsPreview(settings: AppSettings) {
         }
     }
     val samples = listOf(
-        "Дядя" to "Есть пробитие!", "Nova" to "Заряжай сердечки!", "Pixel" to "Вот это поворот",
+        "Дядя" to "Есть пробитие!", "Зритель" to "Добрый вечер!", "Pixel" to "Вот это поворот",
         "Luna" to "Старая гвардия!!!", "Tank" to "WW завоз", "Nova" to "Хороший эфир",
     )
     val messages = remember(tick) {
@@ -359,23 +353,14 @@ private fun CatalogSettingsPreview(settings: AppSettings) {
 }
 
 @Composable
-private fun NotificationSettingsPreview(settings: AppSettings, request: Int, onSound: () -> Unit) {
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(request) {
-        if (request > 0) {
-            visible = true
-            if (settings.notificationSoundEnabled) onSound()
-            delay(5_000)
-            visible = false
-        }
-    }
+private fun NotificationSettingsPreview(settings: AppSettings) {
     SettingsExampleStage {
         Box(Modifier.fillMaxSize().clearAndSetSemantics {
-            contentDescription = if (visible) "Пример уведомления: Дядя на танке в эфире" else "Пример просмотра"
+            contentDescription = "Пример уведомления о новом эфире"
         }) {
             PreviewScene(animationsEnabled = settings.animationsEnabled, modifier = Modifier.fillMaxSize())
-            if (visible) LiveNotificationBanner(Channel(id = "settings-example", login = "settings_example",
-                name = "Дядя на танке", title = "", category = "Мир Танков", imageUrl = "", liveMessage = "Заряжай сердечки!"),
+            LiveNotificationBanner(Channel(id = "settings-example", login = "settings_example",
+                name = "Дядя на танке", title = "", category = "Мир Танков", imageUrl = "", liveMessage = "Начал трансляцию"),
                 Modifier.align(Alignment.TopCenter).padding(24.dp))
         }
     }
@@ -410,6 +395,30 @@ private fun SettingsExampleStage(content: @Composable BoxScope.() -> Unit) {
             Text("ПРИМЕР", color = TvColors.Text, fontSize = 14.sp,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp)
                     .background(TvColors.Accent, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
+        }
+    }
+}
+
+
+@Composable
+private fun ReleaseOverview(state: com.oprawa.twitch20.update.UpdateState) {
+    Column(Modifier.fillMaxWidth().background(TvColors.Surface, TvShapes.Panel).padding(22.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Установлено · ${BuildConfig.VERSION_NAME}", color = TvColors.Link, fontSize = 14.sp)
+        Text(state.available?.let { "Доступна версия ${it.versionName}" } ?: when (state.status) {
+            "idle", "checking" -> "Проверяем обновления…"
+            else -> state.message
+        }, color = TvColors.Text, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
+        val lastPublished = state.latestPublished?.takeIf { state.available == null && it.versionName != BuildConfig.VERSION_NAME }
+        if (lastPublished != null) {
+            Text("Последний опубликованный выпуск · ${lastPublished.versionName}",
+                color = TvColors.Link, fontSize = 14.sp)
+        }
+        val notes = state.available?.notes ?: state.currentNotes ?: lastPublished?.notes
+        if (!notes.isNullOrBlank()) {
+            Text("Что нового", color = TvColors.Link, fontSize = 15.sp)
+            Text(formatReleaseNotes(notes), color = TvColors.Muted, fontSize = 15.sp,
+                lineHeight = 21.sp, maxLines = 7, overflow = TextOverflow.Ellipsis)
         }
     }
 }

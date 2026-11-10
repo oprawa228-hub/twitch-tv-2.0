@@ -8,9 +8,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,7 +35,6 @@ import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.oprawa.twitch20.data.Channel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -68,24 +64,27 @@ fun NavigationRail(
     onChannelDetails: (Channel) -> Unit = {},
     onChannelFocusChanged: (String?) -> Unit = {},
     rankedOfflineLogins: List<String> = emptyList(),
+    allowExpand: Boolean = true,
 ) {
     val entries = listOf(RailEntry("search", "Поиск"), RailEntry("following", "Каналы"),
         RailEntry("recordings", "Записи"), RailEntry("categories", "Категории"),
         RailEntry("streams", "Рекомендации"))
-    val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
-    var expanded by remember { mutableStateOf(false) }
+    BoxWithConstraints(modifier.fillMaxHeight()) {
+    // Five destinations + Settings + spacing/divider; only show complete shortcut rows.
+    val capacity = ((maxHeight - 332.dp) / 46.dp).toInt().coerceIn(0, 4)
+    var railFocused by remember { mutableStateOf(false) }
+    val expanded = railFocused && allowExpand
     var focusedKey by remember { mutableStateOf<String?>(null) }
     val channelsById = following.channels.associateBy { it.id }
     val offlineByLogin = following.channels.filterNot { it.live }.associateBy { it.login }
     val rankedOffline = rankedOfflineLogins.mapNotNull(offlineByLogin::get).distinctBy { it.id }
     val preferredIds = following.channels.filter { it.live }.map { it.id } +
-        (rankedOffline + offlineByLogin.values).distinctBy { it.id }.take(6).map { it.id }
+        (rankedOffline + offlineByLogin.values).distinctBy { it.id }.map { it.id }
     // Keep existing D-pad targets in place while focused, but render current metadata.
     var order by remember(following.signedIn, accountName) { mutableStateOf<List<String>>(emptyList()) }
-    val channelIds = if (expanded && order.isNotEmpty()) {
+    val channelIds = (if (expanded && order.isNotEmpty()) {
         order.filter { it in channelsById } + preferredIds.filterNot { it in order }
-    } else preferredIds
+    } else preferredIds).take(capacity)
     val channels = channelIds.mapNotNull(channelsById::get)
     val focusedChannelId = focusedKey?.takeIf { it.startsWith("live:") }?.removePrefix("live:")
     val removedIndex = if (expanded && focusedChannelId != null && focusedChannelId !in channelIds) {
@@ -97,16 +96,9 @@ fun NavigationRail(
         requesterCache.keys.retainAll(focusKeys.toSet())
         focusKeys.associateWith { requesterCache.getOrPut(it) { FocusRequester() } }
     }
-    val currentIds by rememberUpdatedState(channelIds)
     val currentRequesters by rememberUpdatedState(requesters)
     fun focusChannel(id: String) {
-        scope.launch {
-            val index = currentIds.indexOf(id)
-            if (index < 0) return@launch
-            listState.scrollToItem(index)
-            withFrameNanos { }
-            currentRequesters["live:$id"]?.requestFocus()
-        }
+        currentRequesters["live:$id"]?.requestFocus()
     }
     SideEffect { order = channelIds }
     LaunchedEffect(channelIds) {
@@ -115,10 +107,10 @@ fun NavigationRail(
             else focusChannel(channelIds[removedIndex.coerceAtMost(channelIds.lastIndex)])
         }
     }
-    Column(modifier.width(if (expanded) 208.dp else 84.dp).fillMaxHeight()
+    Column(Modifier.width(if (expanded) 208.dp else 84.dp).fillMaxHeight()
         .background(TvColors.Surface)
         .onFocusChanged {
-            expanded = it.hasFocus
+            railFocused = it.hasFocus
             onFocusOwnership(it.hasFocus)
             if (!it.hasFocus) onChannelFocusChanged(null)
         }
@@ -157,9 +149,10 @@ fun NavigationRail(
         }
         Box(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 6.dp).height(1.dp).background(TvColors.Border))
         if (channels.isNotEmpty()) {
-            LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth(),
+            Column(modifier = Modifier.weight(1f).fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                itemsIndexed(channels, key = { _, channel -> channel.id }) { index, channel ->
+                channels.forEachIndexed { index, channel ->
+                    androidx.compose.runtime.key(channel.id) {
                     RailRow(channel.name, selected == "live:${channel.id}", expanded,
                         modifier = Modifier.focusRequester(requesters.getValue("live:${channel.id}")),
                         description = if (channel.live) "${channel.name}, в эфире, ${viewerLabel(channel.viewers)}" else "${channel.name}, офлайн",
@@ -178,12 +171,13 @@ fun NavigationRail(
                                 else -> false
                             }
                         }) { _ -> RailChannelAvatar(channel) }
+                    }
                 }
             }
         } else Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp, vertical = 5.dp)) {
             if (expanded) Text(when {
                 !following.signedIn -> "Войдите в Twitch в настройках"
-                following.error != null -> "Каналы недоступны. Обновите список."
+                following.error != null -> "Каналы пока недоступны"
                 following.loading || !following.initialized -> "Загрузка каналов…"
                 else -> "Нет подписок"
             }, color = TvColors.Muted, fontSize = 12.sp, lineHeight = 17.sp)
@@ -200,6 +194,7 @@ fun NavigationRail(
                 }
                 else -> false
             } }) { ink -> RailIcon("settings", ink) }
+    }
     }
 }
 
