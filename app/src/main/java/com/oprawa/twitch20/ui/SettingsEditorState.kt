@@ -8,8 +8,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 
-enum class SettingsEditorPage { OVERVIEW, OVERLAY, THEATER, INTERFACE, CLOCK, NOTIFICATIONS }
-internal enum class SettingsPreviewTarget { CATALOG, ANIMATIONS, OVERLAY, THEATER, CLOCK, NOTIFICATIONS, ACCOUNT, ABOUT }
+enum class SettingsEditorPage { OVERVIEW, OVERLAY, THEATER, INTERFACE, CLOCK, NOTIFICATIONS, VIEWING, ABOUT }
+internal enum class SettingsPreviewTarget { CATALOG, ANIMATIONS, VIEWING, OVERLAY, THEATER, CLOCK, NOTIFICATIONS, ACCOUNT, ABOUT }
 
 /** Navigation only. Confirmed choices are persisted immediately by the enclosing screen. */
 @Stable
@@ -27,8 +27,14 @@ class SettingsEditorState(initialPage: SettingsEditorPage = SettingsEditorPage.O
     }
     fun back(): Boolean {
         if (page == SettingsEditorPage.OVERVIEW) return false
-        overviewFocus = page.name
-        page = SettingsEditorPage.OVERVIEW
+        val previous = page
+        page = when (previous) {
+            SettingsEditorPage.OVERLAY, SettingsEditorPage.THEATER -> SettingsEditorPage.VIEWING
+            SettingsEditorPage.CLOCK -> SettingsEditorPage.INTERFACE
+            else -> SettingsEditorPage.OVERVIEW
+        }
+        focusedSetting = previous.name
+        if (page == SettingsEditorPage.OVERVIEW) overviewFocus = previous.name
         return true
     }
     fun reset() {
@@ -46,8 +52,15 @@ internal fun SettingsEditorState.previewTarget(): SettingsPreviewTarget = when (
     SettingsEditorPage.THEATER -> SettingsPreviewTarget.THEATER
     SettingsEditorPage.CLOCK -> SettingsPreviewTarget.CLOCK
     SettingsEditorPage.NOTIFICATIONS -> SettingsPreviewTarget.NOTIFICATIONS
-    SettingsEditorPage.INTERFACE -> if (focusedSetting == "ANIMATIONS") SettingsPreviewTarget.ANIMATIONS else SettingsPreviewTarget.CATALOG
+    SettingsEditorPage.ABOUT -> SettingsPreviewTarget.ABOUT
+    SettingsEditorPage.VIEWING -> if (focusedSetting == "THEATER") SettingsPreviewTarget.THEATER else SettingsPreviewTarget.OVERLAY
+    SettingsEditorPage.INTERFACE -> when (focusedSetting) {
+        "ANIMATIONS" -> SettingsPreviewTarget.ANIMATIONS
+        "CLOCK" -> SettingsPreviewTarget.CLOCK
+        else -> SettingsPreviewTarget.CATALOG
+    }
     SettingsEditorPage.OVERVIEW -> when (overviewFocus) {
+        "VIEWING" -> SettingsPreviewTarget.VIEWING
         "OVERLAY" -> SettingsPreviewTarget.OVERLAY
         "THEATER" -> SettingsPreviewTarget.THEATER
         "CLOCK" -> SettingsPreviewTarget.CLOCK
@@ -60,8 +73,9 @@ internal fun SettingsEditorState.previewTarget(): SettingsPreviewTarget = when (
 
 @Composable
 fun rememberSettingsEditorState(): SettingsEditorState = rememberSaveable(saver = listSaver<SettingsEditorState, String>(
-    save = { listOf(it.page.name, it.overviewFocus.orEmpty()) },
+    save = { listOf(it.page.name, it.overviewFocus.orEmpty(), it.focusedSetting.orEmpty()) },
     restore = { values -> SettingsEditorState(SettingsEditorPage.valueOf(values[0])).apply {
-        values[1].takeIf(String::isNotBlank)?.let(::rememberOverviewFocus)
+        values.getOrNull(1)?.takeIf(String::isNotBlank)?.let(::rememberOverviewFocus)
+        values.getOrNull(2)?.takeIf(String::isNotBlank)?.let(::focusSetting)
     } },
 )) { SettingsEditorState() }

@@ -42,6 +42,8 @@ data class UpdateState(
     val message: String = "Проверьте, доступна ли новая версия",
     val progress: Float = 0f,
     val available: UpdateRelease? = null,
+    val currentNotes: String? = null,
+    val progressKnown: Boolean = false,
 )
 
 /** No credentials; only the new project's public release channel is reachable. */
@@ -100,6 +102,7 @@ class UpdateManager(context: Context) {
                 return@execute
             }
             var newest: UpdateRelease? = null
+            var currentNotes: String? = null
             var manifestFailures = 0
             for (release in releases) {
                 currentCoroutineContext().ensureActive()
@@ -120,9 +123,17 @@ class UpdateManager(context: Context) {
                     require(publishedAsset != null && publishedAsset.optLong("size") in 1..UpdatePolicy.MAX_APK_BYTES) {
                         "Файл APK отсутствует или слишком велик"
                     }
-                    if (manifest.versionCode <= currentVersion) continue
+                    if (manifest.versionCode < currentVersion) continue
+                    val notes = release.opt("body")?.let { it as? String }?.trim()?.takeIf { it.isNotBlank() }
+                    if (manifest.versionCode == currentVersion) {
+                        if (currentNotes == null && manifest.versionName == installed.versionName) {
+                            UpdatePolicy.validateRelease(manifest, 0, Build.VERSION.SDK_INT, installedCert)
+                            currentNotes = notes
+                        }
+                        continue
+                    }
                     UpdatePolicy.validateRelease(manifest, currentVersion, Build.VERSION.SDK_INT, installedCert)
-                    if (newest == null || manifest.versionCode > newest.versionCode) newest = manifest
+                    if (newest == null || manifest.versionCode > newest.versionCode) newest = manifest.copy(notes = notes)
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { manifestFailures++ }
             }
@@ -130,7 +141,8 @@ class UpdateManager(context: Context) {
             publish(when {
                 newest != null -> UpdateState("available", "Доступна версия ${newest.versionName}", available = newest)
                 manifestFailures > 0 -> UpdateState("error", "Не удалось проверить файлы выпуска. Повторите позже.")
-                else -> UpdateState("current", if (includePrerelease) "Новых проверяемых выпусков нет" else "Новых стабильных выпусков нет")
+                else -> UpdateState("current", if (includePrerelease) "Новых версий пока нет" else "Новых стабильных версий пока нет",
+                    currentNotes = currentNotes)
             })
         }
     }
@@ -167,7 +179,8 @@ class UpdateManager(context: Context) {
                                 val progress = if (expected > 0) (total.toDouble() / expected).toFloat().coerceIn(0f, 1f) else 0f
                                 val percent = (progress * 100).toInt()
                                 if (percent != lastProgress) {
-                                    publish(UpdateState("downloading", "Скачиваем ${release.versionName}…", progress, release))
+                                    publish(UpdateState("downloading", "Скачиваем ${release.versionName}…", progress, release,
+                                        progressKnown = expected > 0))
                                     lastProgress = percent
                                 }
                             }
@@ -291,7 +304,7 @@ class UpdateManager(context: Context) {
         currentCoroutineContext().ensureActive()
         publish(if (release != null && release.versionCode > currentVersion)
             UpdateState("available", "Доступна версия ${release.versionName}", available = release)
-        else UpdateState("current", if (includePrerelease) "Новых проверяемых выпусков нет" else "Новых стабильных выпусков нет"))
+        else UpdateState("current", if (includePrerelease) "Новых версий пока нет" else "Новых стабильных версий пока нет"))
     }
 
     private class HttpFailure(val status: Int) : IOException("Сервис обновления недоступен")

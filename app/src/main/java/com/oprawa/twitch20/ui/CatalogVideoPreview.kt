@@ -17,6 +17,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.C
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -39,12 +40,27 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.coroutineContext
 
-/** A catalog owns at most one muted preview, independently of the full-screen player. */
+/** A catalog owns one preview, independently of the full-screen player's MediaSession. */
 internal class CatalogPreview(val channelId: String, val player: ExoPlayer) {
     var rendered by mutableStateOf(false)
 }
 
 private val previewSerials = AtomicLong()
+
+/** Main-thread lease: a newly visible preview silences the previous surface synchronously. */
+@androidx.annotation.OptIn(UnstableApi::class)
+private object PreviewAudio {
+    private var owner: ExoPlayer? = null
+    fun claim(player: ExoPlayer) {
+        if (owner !== player) owner?.volume = 0f
+        owner = player
+        player.volume = .45f
+    }
+    fun release(player: ExoPlayer) {
+        player.volume = 0f
+        if (owner === player) owner = null
+    }
+}
 
 /** Main-thread ownership makes coroutine cancellation and composition disposal idempotent. */
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -59,6 +75,7 @@ private class PreviewPlayer(val player: ExoPlayer) {
     fun release() {
         if (released) return
         released = true
+        PreviewAudio.release(player)
         val muted = player.volume == 0f
         val audioDisabled = C.TRACK_TYPE_AUDIO in player.trackSelectionParameters.disabledTrackTypes
         player.release()
@@ -117,6 +134,7 @@ internal fun rememberCatalogVideoPreview(
     enabled: Boolean,
     scrolling: Boolean,
     resolvePreview: (suspend (Channel) -> String)?,
+    soundEnabled: Boolean = false,
 ): CatalogPreview? {
     val context = LocalContext.current.applicationContext
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -131,11 +149,20 @@ internal fun rememberCatalogVideoPreview(
         onDispose { lifecycle.removeObserver(observer) }
     }
     val currentResolver by rememberUpdatedState(resolvePreview)
+    val currentSound by rememberUpdatedState(soundEnabled)
     val resources = remember { CatalogPreviewResources() }
     DisposableEffect(resources) {
         onDispose { resources.close() }
     }
     var preview by remember { mutableStateOf<CatalogPreview?>(null) }
+    LaunchedEffect(soundEnabled, preview?.player, preview?.rendered) {
+        preview?.let { active ->
+            active.player.trackSelectionParameters = active.player.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, !soundEnabled).build()
+            if (soundEnabled && active.rendered && foreground) PreviewAudio.claim(active.player)
+            else PreviewAudio.release(active.player)
+        }
+    }
 
     LaunchedEffect(channel?.id, channel?.login, channel?.live, enabled, scrolling,
         foreground, resolvePreview != null) {
@@ -162,8 +189,10 @@ internal fun rememberCatalogVideoPreview(
             val firstFrame = CompletableDeferred<Boolean>()
             val ended = CompletableDeferred<Unit>()
             player.volume = 0f
+            player.setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, !currentSound)
                 .setMaxVideoSize(640, 360)
                 .setMaxVideoBitrate(1_200_000)
                 .build()

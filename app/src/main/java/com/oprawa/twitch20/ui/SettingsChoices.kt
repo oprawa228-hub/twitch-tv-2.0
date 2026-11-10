@@ -3,6 +3,8 @@ package com.oprawa.twitch20.ui
 import com.oprawa.twitch20.settings.AppSettings
 import com.oprawa.twitch20.settings.ChatMode
 import com.oprawa.twitch20.settings.ChatPosition
+import com.oprawa.twitch20.settings.ClockPlacement
+import com.oprawa.twitch20.settings.ClockStyle
 import com.oprawa.twitch20.settings.OverlaySize
 
 internal enum class SettingsChoice { TEXT_SIZE, OVERLAY_SIZE, OPACITY, POSITION }
@@ -12,6 +14,18 @@ internal fun overlaySizeLabel(size: OverlaySize): String = when (size) {
     OverlaySize.SMALL -> "Маленький"
     OverlaySize.MEDIUM -> "Средний"
     OverlaySize.LARGE -> "Большой"
+    OverlaySize.TALL -> "Высокий"
+}
+
+internal fun clockStyleLabel(style: ClockStyle): String = when (style) {
+    ClockStyle.CLASSIC -> "Классический"
+    ClockStyle.COMPACT -> "Компактный"
+    ClockStyle.SEGMENTS -> "Сегменты"
+}
+
+internal fun clockPlacementLabel(placement: ClockPlacement): String = when (placement) {
+    ClockPlacement.VIDEO -> "На видео"
+    ClockPlacement.CHAT -> "В чате"
 }
 
 internal fun positionLabel(position: ChatPosition): String = when (position) {
@@ -31,12 +45,11 @@ internal fun opacityLabel(opacity: Float): String = opacityPresets.firstOrNull {
     else -> "Непрозрачный"
 }
 
-/** Focus never persists settings or switches the active chat presentation. */
+/** The current setting and the values reached with directional input. */
 internal data class SettingsSelection(
     val original: AppSettings,
     val mode: ChatMode,
     val choice: SettingsChoice,
-    val focusedIndex: Int? = null,
 ) {
     val title: String get() = when (choice) {
         SettingsChoice.TEXT_SIZE -> "Размер текста"
@@ -63,11 +76,5 @@ internal data class SettingsSelection(
         }
     }
     val selectedIndex: Int get() = options.indexOfFirst { it.settings == original }.coerceAtLeast(0)
-    fun focus(index: Int): SettingsSelection {
-        require(index in options.indices)
-        return copy(focusedIndex = index)
-    }
-    fun preview(): AppSettings = options[focusedIndex ?: selectedIndex].settings
-    fun confirm(): AppSettings = preview()
-    fun cancel(): AppSettings = original
+    fun step(delta: Int): AppSettings = options[(selectedIndex + delta).mod(options.size)].settings
 }

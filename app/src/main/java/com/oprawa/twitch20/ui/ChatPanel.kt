@@ -33,6 +33,7 @@ import com.oprawa.twitch20.chat.ChatPresentation
 import com.oprawa.twitch20.chat.ChatColor
 import com.oprawa.twitch20.settings.AppSettings
 import com.oprawa.twitch20.settings.ChatPosition
+import com.oprawa.twitch20.settings.ClockPlacement
 
 /** Shared normalized geometry for the actual player and the 960 × 540 settings stage. */
 object ChatLayout {
@@ -59,6 +60,8 @@ fun ChatPanel(messages: List<ChatMessage>, settings: AppSettings, modifier: Modi
     Box(modifier.clip(RoundedCornerShape(5.dp))
         .background(TvColors.Background.copy(alpha = settings.chatOpacity.coerceIn(0f, 1f)))) {
         Column(Modifier.fillMaxSize()) {
+            if (settings.showClock && settings.clockPlacement == ClockPlacement.CHAT)
+                TvClock(settings, Modifier.align(Alignment.End).padding(horizontal = 10.dp, vertical = 6.dp))
             ChatPresentation.statusLabel(status, shown.isNotEmpty())?.let { label ->
                 Text(label, color = TvColors.Muted,
                     fontSize = settings.chatTextSizeSp.sp, modifier = Modifier.padding(10.dp))

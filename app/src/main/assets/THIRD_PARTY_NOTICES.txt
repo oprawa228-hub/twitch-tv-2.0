@@ -14,6 +14,7 @@
 | Okio | Буферизованный ввод/вывод, транзитивная зависимость OkHttp/Coil | Square и участники; Apache-2.0 | [Исходники](https://github.com/square/okio), [лицензия](https://raw.githubusercontent.com/square/okio/master/LICENSE.txt) |
 | Coil | Compose images, OkHttp integration, SVG decoder; 3.4.0 | Coil Contributors; Apache-2.0 | [Исходники](https://github.com/coil-kt/coil/tree/3.4.0), [лицензия](https://raw.githubusercontent.com/coil-kt/coil/3.4.0/LICENSE.txt) |
 | AndroidSVG | SVG renderer, транзитивно через Coil SVG; 1.4 | Copyright 2013–2018 Cave Rock Software Ltd; Apache-2.0 | [Исходники](https://github.com/BigBadaboom/androidsvg), [лицензия](https://raw.githubusercontent.com/BigBadaboom/androidsvg/master/LICENSE) |
+| ZXing Core | Локальное создание QR-кода для входа в Twitch; 3.5.4 | ZXing authors; Apache-2.0 | [Исходники](https://github.com/zxing/zxing/tree/zxing-3.5.4/core), [лицензия](https://github.com/zxing/zxing/blob/zxing-3.5.4/LICENSE) |
 | Guava / failureaccess | Коллекции и служебные классы concurrent, транзитивные runtime-компоненты | Google и участники; Apache-2.0 | [Исходники](https://github.com/google/guava), [лицензия](https://raw.githubusercontent.com/google/guava/master/LICENSE) |
 | Public Suffix List | Данные доменных суффиксов в OkHttp `publicsuffixes.gz` | Public Suffix List contributors; **MPL-2.0** | [Исходные данные](https://publicsuffix.org/list/public_suffix_list.dat), [лицензия](https://www.mozilla.org/en-US/MPL/2.0/), [уведомление OkHttp](https://raw.githubusercontent.com/square/okhttp/parent-4.12.1/okhttp/src/main/resources/okhttp3/internal/publicsuffix/NOTICE) |
 
@@ -26,3 +27,5 @@
 Новая реализация Twitch 2.0 распространяется под Apache-2.0. Авторские иллюстрации Oprawa используются с разрешения владельца для этого проекта и не перелицензируются автоматически; реестр находится в `docs/ART.md`. Названия и знаки Twitch принадлежат соответствующему правообладателю. Приложение не является официальным продуктом Twitch.
 
 Streamlink использовался как источник технического исследования; его Python runtime и готовый клиент в APK не включены. Инструменты сборки и тестовые зависимости не перечислены здесь как библиотеки release APK.
+
+DinoDance: глобальная эмоция Twitch, загружаемая с официального static-cdn.jtvnw.net для декоративного отображения. Изображение не является собственной иллюстрацией Oprawa; права принадлежат правообладателям. При выключенных анимациях используется статический вариант.

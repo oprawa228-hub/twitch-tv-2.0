@@ -11,6 +11,9 @@ data class Channel(
     val live: Boolean = true,
     val avatarUrl: String = "",
     val liveStreamId: String = "",
+    val description: String = "",
+    val bannerUrl: String = "",
+    val liveMessage: String = "",
 )
 
 data class Category(val id: String, val name: String, val imageUrl: String)

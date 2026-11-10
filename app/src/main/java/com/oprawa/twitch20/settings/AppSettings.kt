@@ -2,8 +2,10 @@ package com.oprawa.twitch20.settings
 
 enum class ChatMode { OFF, OVERLAY, THEATER }
 enum class ChatPosition { TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
+enum class ClockStyle { CLASSIC, COMPACT, SEGMENTS }
+enum class ClockPlacement { VIDEO, CHAT }
 enum class OverlaySize(val widthFraction: Float, val heightFraction: Float) {
-    SMALL(.20f, .40f), MEDIUM(.24f, .52f), LARGE(.30f, .66f)
+    SMALL(.20f, .40f), MEDIUM(.24f, .52f), LARGE(.30f, .66f), TALL(.20f, 1f)
 }
 
 data class ChatStyle(val textSizeSp: Int = 18, val opacity: Float = .65f) {
@@ -21,6 +23,10 @@ data class AppSettings(
     val overlaySize: OverlaySize = OverlaySize.MEDIUM,
     val cardPreviewEnabled: Boolean = true,
     val followNotificationsEnabled: Boolean = true,
+    val clockStyle: ClockStyle = ClockStyle.CLASSIC,
+    val clockPlacement: ClockPlacement = ClockPlacement.VIDEO,
+    val previewSoundEnabled: Boolean = true,
+    val notificationSoundEnabled: Boolean = false,
 ) {
     val chatEnabled: Boolean get() = chatMode != ChatMode.OFF
     val overlayEnabled: Boolean get() = chatMode == ChatMode.OVERLAY
@@ -62,6 +68,10 @@ internal object SettingsCodec {
             overlaySize = enumValue<OverlaySize>(values["overlaySize"]) ?: OverlaySize.MEDIUM,
             cardPreviewEnabled = values["cardPreviewEnabled"] as? Boolean ?: true,
             followNotificationsEnabled = values["followNotificationsEnabled"] as? Boolean ?: true,
+            clockStyle = enumValue<ClockStyle>(values["clockStyle"]) ?: ClockStyle.CLASSIC,
+            clockPlacement = enumValue<ClockPlacement>(values["clockPlacement"]) ?: ClockPlacement.VIDEO,
+            previewSoundEnabled = values["previewSoundEnabled"] as? Boolean ?: true,
+            notificationSoundEnabled = values["notificationSoundEnabled"] as? Boolean ?: false,
         )
     }
 
@@ -72,7 +82,9 @@ internal object SettingsCodec {
             "chatPosition" to safe.chatPosition.name, "showClock" to safe.showClock,
             "animationsEnabled" to safe.animationsEnabled,
             "overlaySize" to safe.overlaySize.name, "cardPreviewEnabled" to safe.cardPreviewEnabled,
-            "followNotificationsEnabled" to safe.followNotificationsEnabled)
+            "followNotificationsEnabled" to safe.followNotificationsEnabled,
+            "clockStyle" to safe.clockStyle.name, "clockPlacement" to safe.clockPlacement.name,
+            "previewSoundEnabled" to safe.previewSoundEnabled, "notificationSoundEnabled" to safe.notificationSoundEnabled)
     }
 
     private inline fun <reified T : Enum<T>> enumValue(value: Any?): T? =

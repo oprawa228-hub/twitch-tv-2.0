@@ -69,11 +69,33 @@ class FollowNotificationsTest {
             device.wait(Until.hasObject(By.text("Нажатий: 1")), 2_000))
         SystemClock.sleep(1_500)
         assertTrue("Banner disappeared before its display interval", device.hasObject(banner(next)))
-        assertTrue("Banner did not expire after 4.5 seconds", device.wait(Until.gone(banner(next)), 5_500))
+        assertTrue("Banner did not expire after 5 seconds", device.wait(Until.gone(banner(next)), 5_500))
         assertTrue("Banner was visible for less than 3.5 seconds", SystemClock.elapsedRealtime() - shownAt >= 3_500)
         assertTrue(anchorFocused())
         fixture.publish(listOf(baseline, next))
         assertAbsent(next, 500)
+    }
+
+    @Test fun leavingPlaybackClearsVisibleAndWaitingStartsAndCatalogDoesNotQueueThem() = withNotifications { fixture ->
+        fixture.publish(emptyList())
+        val visible = channel("Visible before leaving").copy(liveMessage = "Авторский текст")
+        fixture.publish(listOf(visible))
+        awaitBanner(visible)
+        assertTrue(device.hasObject(By.text(visible.liveMessage)))
+        assertFalse(device.hasObject(By.text(visible.title)))
+        val waiting = channel("Waiting before leaving")
+        fixture.publish(listOf(visible, waiting))
+        fixture.change { it.copy(eligible = false) }
+        assertTrue(device.wait(Until.gone(banner(visible)), 2_000))
+        val catalog = channel("While browsing")
+        fixture.publish(listOf(visible, waiting, catalog))
+        fixture.change { it.copy(eligible = true) }
+        assertAbsent(waiting, 400)
+        assertAbsent(catalog, 400)
+        val next = channel("After returning")
+        fixture.publish(listOf(visible, waiting, catalog, next))
+        awaitBanner(next)
+        assertTrue(device.hasObject(By.text("Начал трансляцию")))
     }
 
     @Test fun currentChannelIsSuppressedAndPendingEventRechecksCurrentChannel() = withNotifications { fixture ->
@@ -101,13 +123,10 @@ class FollowNotificationsTest {
         fixture.publish(emptyList())
         fixture.change { it.copy(settingsOpen = true) }
         openNotificationSettings()
-        assertTrue("Settings example must identify itself rather than announce a real live start",
-            device.wait(Until.hasObject(By.desc("Пример уведомления: Дядя на танке в эфире")), 3_000))
         val blocked = channel("While settings")
         fixture.publish(listOf(blocked))
         assertAbsent(blocked, 400)
-        device.pressDPadCenter()
-        assertTrue(device.wait(Until.hasObject(By.desc("Новые эфиры каналов: Скрыты")), 3_000))
+        changeNotificationSetting(enabled = false)
         assertFalse("Toggle did not immediately persist to the host", fixture.config.value.settings.followNotificationsEnabled)
         closeSettings()
         assertAbsent(blocked, 500)
@@ -116,8 +135,7 @@ class FollowNotificationsTest {
         assertAbsent(disabled, 400)
         fixture.change { it.copy(settingsOpen = true) }
         openNotificationSettings(enabled = false)
-        device.pressDPadCenter()
-        assertTrue(device.wait(Until.hasObject(By.desc("Новые эфиры каналов: Показаны")), 3_000))
+        changeNotificationSetting(enabled = true)
         closeSettings()
         assertAbsent(disabled, 500)
         val enabled = channel("After enabled")
@@ -182,7 +200,7 @@ class FollowNotificationsTest {
         assertAbsent(announced, 400)
         val next = channel("After announced")
         fixture.publish(listOf(announced, next))
-        // A hidden old banner must not keep occupying the collector's 4.5-second interval.
+        // A hidden old banner must release the collector early.
         awaitBanner(next, timeoutMs = 2_000)
         assertTrue(anchorFocused())
     }
@@ -229,7 +247,9 @@ class FollowNotificationsTest {
                             FollowNotifications(fixture.monitor, config.settings.followNotificationsEnabled,
                                 blocked = !foreground || config.settingsOpen || config.controlsVisible,
                                 currentLogin = config.currentLogin,
-                                modifier = Modifier.align(Alignment.TopCenter).padding(top = 20.dp))
+                                modifier = Modifier.align(Alignment.TopCenter).padding(top = 20.dp),
+                                eligible = config.eligible,
+                                animationsEnabled = config.settings.animationsEnabled)
                         }
                         SideEffect { fixture.appliedConfig = config }
                     }
@@ -265,14 +285,15 @@ class FollowNotificationsTest {
     }
 
     private data class Config(val settings: AppSettings = AppSettings(animationsEnabled = false),
-        val settingsOpen: Boolean = false, val controlsVisible: Boolean = false, val currentLogin: String? = null)
+        val settingsOpen: Boolean = false, val controlsVisible: Boolean = false, val currentLogin: String? = null,
+        val eligible: Boolean = true)
 
     private fun signature(config: Config) = "Notification fixture: ${config.settings.followNotificationsEnabled}|" +
         "${config.settingsOpen}|${config.controlsVisible}|${config.currentLogin.orEmpty()}"
 
     private fun channel(name: String) = Channel(id = name, login = name.lowercase().replace(' ', '_'),
         name = name, title = "Controlled live start", category = "Test", imageUrl = "", liveStreamId = "stream-$name")
-    private fun banner(channel: Channel) = By.text("${channel.name} в эфире")
+    private fun banner(channel: Channel) = By.text(channel.name)
     private fun awaitBanner(channel: Channel, timeoutMs: Long = 3_000) {
         assertTrue("Expected notification for ${channel.name}", device.wait(Until.hasObject(banner(channel)), timeoutMs))
     }
@@ -294,23 +315,38 @@ class FollowNotificationsTest {
         assertTrue("Playback control did not receive initial/return focus", anchorFocused())
     }
     private fun openNotificationSettings(enabled: Boolean = true) {
-        assertTrue(device.wait(Until.hasObject(By.desc("Уведомления")), 3_000))
+        val overview = "Уведомления: ${notificationValue(enabled)}"
+        assertTrue(device.wait(Until.hasObject(By.desc(overview)), 3_000))
         val deadline = SystemClock.elapsedRealtime() + 3_000
-        while (!focusedContains { it.contentDescription == "Уведомления" } && SystemClock.elapsedRealtime() < deadline) {
+        while (!focusedContains { it.contentDescription == overview } && SystemClock.elapsedRealtime() < deadline) {
             device.pressDPadDown()
             SystemClock.sleep(80)
         }
-        assertTrue("Could not focus notifications with the remote", focusedContains { it.contentDescription == "Уведомления" })
+        assertTrue("Could not focus notifications with the remote", focusedContains { it.contentDescription == overview })
         device.pressDPadCenter()
-        assertTrue(device.wait(Until.hasObject(By.desc("Новые эфиры каналов: ${if (enabled) "Показаны" else "Скрыты"}")), 3_000))
-        SystemClock.sleep(100)
+        val setting = "Новые эфиры подписок: ${notificationValue(enabled)}"
+        assertTrue(device.wait(Until.hasObject(By.desc(setting)), 3_000))
+        val focusDeadline = SystemClock.elapsedRealtime() + 2_000
+        while (!focusedContains { it.contentDescription == setting } && SystemClock.elapsedRealtime() < focusDeadline) {
+            SystemClock.sleep(40)
+        }
+        assertTrue(focusedContains { it.contentDescription == setting })
+    }
+    private fun changeNotificationSetting(enabled: Boolean) {
+        device.pressDPadCenter()
+        assertTrue(device.wait(Until.hasObject(By.text("Значение")), 3_000))
+        device.pressDPadRight()
+        assertTrue(device.wait(Until.hasObject(By.desc("Новые эфиры подписок: ${notificationValue(enabled)}")), 3_000))
+        device.pressBack()
+        assertTrue(device.wait(Until.gone(By.text("Значение")), 3_000))
     }
     private fun closeSettings() {
         device.pressBack()
-        assertTrue(device.wait(Until.hasObject(By.desc("Уведомления")), 3_000))
+        assertTrue(device.wait(Until.hasObject(By.descStartsWith("Уведомления: ")), 3_000))
         device.pressBack()
         assertTrue(device.wait(Until.hasObject(By.text(ANCHOR)), 3_000))
         awaitAnchor()
     }
+    private fun notificationValue(enabled: Boolean) = if (enabled) "Включён" else "Выключен"
     private companion object { const val ANCHOR = "Продолжить просмотр" }
 }

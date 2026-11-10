@@ -4,13 +4,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SettingsEditorStateTest {
-    @Test fun backFromProfileReturnsToOverviewAndRestoresItsLauncher() {
+    @Test fun backFromProfileRestoresItsLauncherInsideViewing() {
         val state = SettingsEditorState()
         state.open(SettingsEditorPage.THEATER)
         assertEquals(SettingsEditorPage.THEATER, state.page)
         assertTrue(state.back())
+        assertEquals(SettingsEditorPage.VIEWING, state.page)
+        assertEquals("THEATER", state.focusedSetting)
+        assertEquals(SettingsPreviewTarget.THEATER, state.previewTarget())
+        assertTrue(state.back())
         assertEquals(SettingsEditorPage.OVERVIEW, state.page)
-        assertEquals("THEATER", state.overviewFocus)
+        assertEquals("VIEWING", state.overviewFocus)
         assertFalse("Root Back leaves settings without reverting confirmed values", state.back())
     }
 
@@ -39,8 +43,10 @@ class SettingsEditorStateTest {
         state.open(SettingsEditorPage.CLOCK)
         assertEquals(SettingsEditorPage.CLOCK, state.page)
         assertTrue(state.back())
-        assertEquals("CLOCK", state.overviewFocus)
-        assertEquals(SettingsEditorPage.OVERVIEW, state.page)
+        assertEquals("CLOCK", state.focusedSetting)
+        assertEquals(SettingsEditorPage.INTERFACE, state.page)
+        assertTrue(state.back())
+        assertEquals("INTERFACE", state.overviewFocus)
     }
 
     @Test fun focusedSettingSelectsTheCorrespondingExampleWithoutSwitchingPages() {

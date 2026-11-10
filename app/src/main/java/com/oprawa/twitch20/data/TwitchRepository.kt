@@ -61,9 +61,11 @@ class TwitchRepository(
     }
 
     suspend fun channel(login: String): Channel {
-        val data = gql("query(\$login:String!) { user(login:\$login) { $CHANNEL_FIELDS } }", JSONObject().put("login", login))
+        val data = gql("query(\$login:String!) { user(login:\$login) { $CHANNEL_FIELDS description offlineImageURL } }", JSONObject().put("login", login))
         return TwitchJson.channel(data.optJSONObject("user") ?: throw TwitchException(TwitchError.UNAVAILABLE))
     }
+
+    suspend fun liveMessage(login: String): String = ChannelExtras.liveMessage(login, ::gql)
 
     suspend fun videos(login: String): List<Video> {
         val user = gql(
@@ -231,6 +233,9 @@ internal object TwitchJson {
             viewers = stream?.optInt("viewersCount", 0)?.coerceAtLeast(0) ?: 0,
             live = stream != null,
             avatarUrl = text(user, "profileImageURL"),
+            liveStreamId = stream?.let { text(it, "id") }.orEmpty(),
+            description = text(user, "description"),
+            bannerUrl = text(user, "offlineImageURL"),
         )
     }
 

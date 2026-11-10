@@ -53,7 +53,7 @@ data class FollowingSidebarState(
 
 private data class RailEntry(val key: String, val label: String)
 
-/** Search above the library, live followed channels below it, Settings alone at the bottom. */
+/** Search above the library, followed channels below it, Settings alone at the bottom. */
 @Composable
 fun NavigationRail(
     selected: String,
@@ -66,6 +66,8 @@ fun NavigationRail(
     onChannelPreview: (Channel) -> Unit = {},
     onChannelSelect: (Channel) -> Unit = {},
     onChannelDetails: (Channel) -> Unit = {},
+    onChannelFocusChanged: (String?) -> Unit = {},
+    rankedOfflineLogins: List<String> = emptyList(),
 ) {
     val entries = listOf(RailEntry("search", "Поиск"), RailEntry("following", "Каналы"),
         RailEntry("recordings", "Записи"), RailEntry("categories", "Категории"),
@@ -74,34 +76,43 @@ fun NavigationRail(
     val listState = rememberLazyListState()
     var expanded by remember { mutableStateOf(false) }
     var focusedKey by remember { mutableStateOf<String?>(null) }
-    // Live viewer-count changes must not reorder the user's targets under the D-pad.
+    val channelsById = following.channels.associateBy { it.id }
+    val offlineByLogin = following.channels.filterNot { it.live }.associateBy { it.login }
+    val rankedOffline = rankedOfflineLogins.mapNotNull(offlineByLogin::get).distinctBy { it.id }
+    val preferredIds = following.channels.filter { it.live }.map { it.id } +
+        (rankedOffline + offlineByLogin.values).distinctBy { it.id }.take(6).map { it.id }
+    // Keep existing D-pad targets in place while focused, but render current metadata.
     var order by remember(following.signedIn, accountName) { mutableStateOf<List<String>>(emptyList()) }
-    val liveById = following.channels.filter { it.live }.associateBy { it.id }
-    val liveIds = order.filter { it in liveById } + liveById.keys.filterNot { it in order }
-    val live = liveIds.mapNotNull(liveById::get)
-    // Capture before node removal can report a transient loss of focus to the parent.
-    val removedFocusedChannel = focusedKey?.takeIf {
-        expanded && it.startsWith("live:") && it.removePrefix("live:") !in liveById
-    }?.removePrefix("live:")
+    val channelIds = if (expanded && order.isNotEmpty()) {
+        order.filter { it in channelsById } + preferredIds.filterNot { it in order }
+    } else preferredIds
+    val channels = channelIds.mapNotNull(channelsById::get)
+    val focusedChannelId = focusedKey?.takeIf { it.startsWith("live:") }?.removePrefix("live:")
+    val removedIndex = if (expanded && focusedChannelId != null && focusedChannelId !in channelIds) {
+        order.indexOf(focusedChannelId)
+    } else -1
     val requesterCache = remember { mutableMapOf<String, FocusRequester>() }
-    val focusKeys = entries.map { it.key } + liveIds.map { "live:$it" } + "settings"
+    val focusKeys = entries.map { it.key } + channelIds.map { "live:$it" } + "settings"
     val requesters = remember(focusKeys) {
-        requesterCache.apply { focusKeys.forEach { getOrPut(it) { FocusRequester() } } }
+        requesterCache.keys.retainAll(focusKeys.toSet())
+        focusKeys.associateWith { requesterCache.getOrPut(it) { FocusRequester() } }
     }
-    fun focusLive(index: Int) {
+    val currentIds by rememberUpdatedState(channelIds)
+    val currentRequesters by rememberUpdatedState(requesters)
+    fun focusChannel(id: String) {
         scope.launch {
-            if (index !in live.indices) return@launch
+            val index = currentIds.indexOf(id)
+            if (index < 0) return@launch
             listState.scrollToItem(index)
             withFrameNanos { }
-            requesters["live:${live[index].id}"]?.requestFocus()
+            currentRequesters["live:$id"]?.requestFocus()
         }
     }
-    LaunchedEffect(liveIds) {
-        val oldOrder = order
-        order = liveIds
-        if (removedFocusedChannel != null) {
-            if (live.isEmpty()) requesters.getValue("following").requestFocus()
-            else focusLive(oldOrder.indexOf(removedFocusedChannel).coerceIn(0, live.lastIndex))
+    SideEffect { order = channelIds }
+    LaunchedEffect(channelIds) {
+        if (removedIndex >= 0) {
+            if (channels.isEmpty()) requesters.getValue("following").requestFocus()
+            else focusChannel(channelIds[removedIndex.coerceAtMost(channelIds.lastIndex)])
         }
     }
     Column(modifier.width(if (expanded) 208.dp else 84.dp).fillMaxHeight()
@@ -109,6 +120,7 @@ fun NavigationRail(
         .onFocusChanged {
             expanded = it.hasFocus
             onFocusOwnership(it.hasFocus)
+            if (!it.hasFocus) onChannelFocusChanged(null)
         }
         .onPreviewKeyEvent {
             if (it.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN &&
@@ -123,7 +135,7 @@ fun NavigationRail(
             if (index == 1) Spacer(Modifier.height(12.dp))
             RailRow(entry.label, entry.key == selected, expanded,
                 modifier = Modifier.focusRequester(requesters.getValue(entry.key)),
-                onFocused = { focusedKey = entry.key },
+                onFocused = { focusedKey = entry.key; onChannelFocusChanged(null) },
                 onPreview = { if (entry.key != "search") onPreview(entry.key) },
                 onSelect = { onSelect(entry.key) },
                 onDirection = { direction ->
@@ -136,7 +148,7 @@ fun NavigationRail(
                             requesters.getValue(entries[index + 1].key).requestFocus(); true
                         }
                         direction == AndroidKeyEvent.KEYCODE_DPAD_DOWN -> {
-                            if (live.isNotEmpty()) focusLive(0) else requesters.getValue("settings").requestFocus()
+                            if (channels.isNotEmpty()) focusChannel(channelIds.first()) else requesters.getValue("settings").requestFocus()
                             true
                         }
                         else -> false
@@ -144,27 +156,23 @@ fun NavigationRail(
                 }) { ink -> RailIcon(entry.key, ink) }
         }
         Box(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 6.dp).height(1.dp).background(TvColors.Border))
-        Box(Modifier.fillMaxWidth().height(20.dp), contentAlignment = if (expanded) Alignment.CenterStart else Alignment.Center) {
-            if (expanded) Text("В эфире · ${live.size}", color = TvColors.Muted, fontSize = 11.sp,
-                modifier = Modifier.padding(start = 10.dp))
-            else Box(Modifier.size(5.dp).background(if (live.isEmpty()) TvColors.Muted else TvColors.Live, CircleShape))
-        }
-        if (live.isNotEmpty()) {
+        if (channels.isNotEmpty()) {
             LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                itemsIndexed(live, key = { _, channel -> channel.id }) { index, channel ->
+                itemsIndexed(channels, key = { _, channel -> channel.id }) { index, channel ->
                     RailRow(channel.name, selected == "live:${channel.id}", expanded,
                         modifier = Modifier.focusRequester(requesters.getValue("live:${channel.id}")),
-                        description = "${channel.name}, в эфире, ${channel.viewers} зрителей",
-                        onFocused = { focusedKey = "live:${channel.id}" },
-                        onPreview = { onChannelPreview(channel) }, previewDelay = 250,
-                        onSelect = { onChannelSelect(channel) }, onLongSelect = { onChannelDetails(channel) },
+                        description = if (channel.live) "${channel.name}, в эфире, ${viewerLabel(channel.viewers)}" else "${channel.name}, офлайн",
+                        onFocused = { focusedKey = "live:${channel.id}"; onChannelFocusChanged(channel.id) },
+                        onPreview = { onChannelPreview(channel) }, previewDelay = 250, previewKey = channel.live,
+                        onSelect = { if (channel.live) onChannelSelect(channel) else onChannelDetails(channel) },
+                        onLongSelect = { onChannelDetails(channel) },
                         onDirection = { direction ->
                             when {
                                 direction == AndroidKeyEvent.KEYCODE_DPAD_UP && index == 0 -> {
                                     requesters.getValue("streams").requestFocus(); true
                                 }
-                                direction == AndroidKeyEvent.KEYCODE_DPAD_DOWN && index == live.lastIndex -> {
+                                direction == AndroidKeyEvent.KEYCODE_DPAD_DOWN && index == channels.lastIndex -> {
                                     requesters.getValue("settings").requestFocus(); true
                                 }
                                 else -> false
@@ -177,17 +185,17 @@ fun NavigationRail(
                 !following.signedIn -> "Войдите в Twitch в настройках"
                 following.error != null -> "Каналы недоступны. Обновите список."
                 following.loading || !following.initialized -> "Загрузка каналов…"
-                else -> "Сейчас никто не в эфире"
+                else -> "Нет подписок"
             }, color = TvColors.Muted, fontSize = 12.sp, lineHeight = 17.sp)
         }
         RailRow("Настройки", selected == "settings", expanded,
             modifier = Modifier.focusRequester(requesters.getValue("settings")),
-            onFocused = { focusedKey = "settings" }, onPreview = {},
+            onFocused = { focusedKey = "settings"; onChannelFocusChanged(null) }, onPreview = {},
             onSelect = { onSelect("settings") },
             onDirection = { direction -> when (direction) {
                 AndroidKeyEvent.KEYCODE_DPAD_DOWN -> true
                 AndroidKeyEvent.KEYCODE_DPAD_UP -> {
-                    if (live.isNotEmpty()) focusLive(live.lastIndex) else requesters.getValue("streams").requestFocus()
+                    if (channels.isNotEmpty()) focusChannel(channelIds.last()) else requesters.getValue("streams").requestFocus()
                     true
                 }
                 else -> false
@@ -197,13 +205,13 @@ fun NavigationRail(
 
 @Composable
 private fun RailRow(label: String, active: Boolean, expanded: Boolean, modifier: Modifier,
-    description: String = label, previewDelay: Long = 120, onFocused: () -> Unit,
+    description: String = label, previewDelay: Long = 120, previewKey: Any? = null, onFocused: () -> Unit,
     onPreview: () -> Unit, onSelect: () -> Unit, onLongSelect: (() -> Unit)? = null,
     onDirection: (Int) -> Boolean, icon: @Composable (Color) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     var longActivated by remember { mutableStateOf(false) }
     val preview by rememberUpdatedState(onPreview)
-    LaunchedEffect(focused) { if (focused) { delay(previewDelay); preview() } }
+    LaunchedEffect(focused, previewKey) { if (focused) { delay(previewDelay); preview() } }
     val ink = when { focused -> TvColors.Background; active -> TvColors.Link; else -> TvColors.Text }
     Row(modifier.fillMaxWidth().height(42.dp)
         .focusProperties { left = FocusRequester.Cancel }
@@ -260,7 +268,7 @@ private fun RailChannelAvatar(channel: Channel) {
             if (channel.avatarUrl.isNotBlank()) AsyncImage(channel.avatarUrl, contentDescription = null,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
-        Box(Modifier.align(Alignment.BottomEnd).size(7.dp).background(TvColors.Live, CircleShape)
+        Box(Modifier.align(Alignment.BottomEnd).size(7.dp).background(if (channel.live) TvColors.Live else TvColors.Muted, CircleShape)
             .border(1.dp, TvColors.Surface, CircleShape))
     }
 }

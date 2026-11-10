@@ -9,6 +9,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
@@ -27,6 +28,7 @@ import androidx.media3.exoplayer.hls.playlist.HlsPlaylistTracker
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import com.oprawa.twitch20.data.VideoVariant
+import com.oprawa.twitch20.data.VodPlaybackSpeed
 import com.oprawa.twitch20.BuildConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +65,7 @@ data class PlaybackState(
     val activeQuality: String = "",
     val firstFrameMs: Long? = null,
     val droppedFrames: Int = 0,
+    val playbackSpeed: Float = 1f,
 ) {
     val showPauseAction: Boolean get() = playWhenReady && status != PlaybackStatus.Ended
 }
@@ -341,9 +344,16 @@ class PlaybackSession internal constructor(context: Context, dataSourceFactory: 
         }.build()
         // Keep stream-declared live target offset; do not impose an unmeasured latency target.
         player.setMediaItem(item)
+        if (!sameMedia || isLive) player.playbackParameters = PlaybackParameters.DEFAULT
         if (!isLive && startPositionMs > 0) player.seekTo(startPositionMs)
         player.prepare()
         player.playWhenReady = requestedPlayback
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        if (released || mutableState.value.isLive || player.currentMediaItem == null) return
+        player.playbackParameters = PlaybackParameters(VodPlaybackSpeed.sanitize(speed), 1f)
+        publish()
     }
 
     fun pause() { if (!released) player.pause() }
@@ -571,6 +581,7 @@ class PlaybackSession internal constructor(context: Context, dataSourceFactory: 
         metrics.onState(status, player.playWhenReady, !backgrounded, SystemClock.elapsedRealtime())
         mutableState.value = previous.copy(status = status, isPlaying = player.isPlaying,
             playWhenReady = player.playWhenReady,
+            playbackSpeed = player.playbackParameters.speed,
             activeQuality = player.videoFormat?.let { format ->
                 if (format.height > 0) "${format.height}p${format.frameRate.takeIf { it.isFinite() && it > 30 }?.roundToInt() ?: ""}"
                 else ""

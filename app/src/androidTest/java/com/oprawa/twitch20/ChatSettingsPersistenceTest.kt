@@ -3,14 +3,27 @@ package com.oprawa.twitch20
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
+import android.os.SystemClock
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.UiObject2
+import androidx.test.uiautomator.Until
+import com.oprawa.twitch20.settings.ClockPlacement
+import com.oprawa.twitch20.settings.ClockStyle
 import com.oprawa.twitch20.settings.SettingsStore
 import com.oprawa.twitch20.settings.ChatMode
 import com.oprawa.twitch20.settings.ChatStyle
 import com.oprawa.twitch20.settings.OverlaySize
 import com.oprawa.twitch20.ui.SettingsChoice
 import com.oprawa.twitch20.ui.SettingsSelection
+import com.oprawa.twitch20.ui.SettingsScreen
+import com.oprawa.twitch20.ui.TwitchTheme
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -100,50 +113,12 @@ class ChatSettingsPersistenceTest {
         assertEquals(.1f, reopened.chatOpacity, .0001f)
     }
 
-    @Test fun pickerConfirmationPersistsImmediatelyWithoutASeparateScreenSave() = withPreferences { context, prefs ->
-        val store = SettingsStore(context)
-        store.save(store.state.value.copy(chatMode = ChatMode.OFF))
-        val overlay = SettingsSelection(store.state.value, ChatMode.OVERLAY, SettingsChoice.TEXT_SIZE)
-        val small = overlay.options.indexOfFirst { it.label == "Маленький" }
-        // The same callback as picker OK: the editor remains open and has no screen-level draft.
-        store.save(overlay.focus(small).confirm())
-        assertEquals(14, prefs.getInt("overlayTextSizeSp", -1))
-        assertEquals(14, SettingsStore(context).state.value.overlayStyle.textSizeSp)
-        assertEquals(ChatMode.OFF, SettingsStore(context).state.value.chatMode)
-
-        val theater = SettingsSelection(store.state.value, ChatMode.THEATER, SettingsChoice.TEXT_SIZE)
-        val large = theater.options.indexOfFirst { it.label == "Большой" }
-        store.save(theater.focus(large).confirm())
-        val reopened = SettingsStore(context).state.value
-        assertEquals(14, reopened.overlayStyle.textSizeSp)
-        assertEquals(22, reopened.theaterStyle.textSizeSp)
-        assertEquals(ChatMode.OFF, reopened.chatMode)
-    }
-
-    @Test fun focusAndBackNeverOverwriteTheLastConfirmedSettings() = withPreferences { context, prefs ->
-        val store = SettingsStore(context)
-        store.save(store.state.value.copy(overlaySize = OverlaySize.SMALL, chatMode = ChatMode.THEATER,
-            overlayStyle = ChatStyle(14, .35f), theaterStyle = ChatStyle(22, .1f)))
-        val confirmed = store.state.value
-        val persisted = prefs.all.toMap()
-        for (choice in SettingsChoice.entries) {
-            val picker = SettingsSelection(confirmed, ChatMode.OVERLAY, choice)
-            val different = picker.options.indexOfFirst { it.settings != confirmed }
-            assertTrue(different >= 0)
-            val focused = picker.focus(different)
-            assertNotEquals(confirmed, focused.preview())
-            assertEquals(confirmed, focused.cancel())
-            assertEquals(persisted, prefs.all)
-            assertEquals(confirmed, SettingsStore(context).state.value)
-        }
-    }
-
     @Test fun boxSizeSurvivesProfileChangesWhileTheaterStaysOpaque() = withPreferences { context, prefs ->
         val store = SettingsStore(context)
         store.save(store.state.value.copy(chatMode = ChatMode.OFF, overlayStyle = ChatStyle(14, .25f),
             theaterStyle = ChatStyle(22, .1f), showClock = false, cardPreviewEnabled = false))
         val size = SettingsSelection(store.state.value, ChatMode.OVERLAY, SettingsChoice.OVERLAY_SIZE)
-        store.save(size.focus(OverlaySize.LARGE.ordinal).confirm())
+        store.save(size.step(1))
         assertEquals("LARGE", prefs.getString("overlaySize", null))
         store.save(store.state.value.toggleChat(ChatMode.THEATER))
         val theater = SettingsStore(context).state.value
@@ -158,6 +133,110 @@ class ChatSettingsPersistenceTest {
         assertEquals(ChatStyle(14, .25f), overlay.overlayStyle)
         assertEquals(.25f, overlay.chatOpacity, .0001f)
         assertEquals(ChatMode.OVERLAY, overlay.chatMode)
+    }
+
+    @Test fun dpadEditsDisabledOverlayAndClockImmediatelyAndBackKeepsValues() = withPreferences { context, prefs ->
+        val store = SettingsStore(context)
+        store.save(store.state.value.copy(chatMode = ChatMode.OFF, overlaySize = OverlaySize.LARGE,
+            animationsEnabled = false))
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        ActivityScenario.launch(CatalogFocusHostActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    val settings by store.state.collectAsState()
+                    TwitchTheme { SettingsScreen(settings, store::save, onBack = {}, onCheckUpdates = {}) }
+                }
+            }
+
+            awaitFocus(device, "Интерфейс:")
+            device.pressDPadDown()
+            awaitFocus(device, "Просмотр: Без чата")
+            device.pressDPadCenter()
+            awaitFocus(device, "Чат поверх видео: Выключен")
+            device.pressDPadCenter()
+            awaitFocus(device, "Показывать: Выключен")
+            device.pressDPadDown()
+            awaitFocus(device, "Размер чата: Большой")
+            device.pressDPadCenter()
+            assertTrue(device.wait(Until.hasObject(By.text("Значение")), 3_000))
+            awaitFocus(device, "Размер чата: Большой")
+            device.pressDPadRight()
+            awaitFocus(device, "Размер чата: Высокий")
+            assertEquals("TALL", prefs.getString("overlaySize", null))
+            assertEquals(ChatMode.OFF, store.state.value.chatMode)
+            device.pressDPadLeft()
+            awaitFocus(device, "Размер чата: Большой")
+            assertEquals("LARGE", prefs.getString("overlaySize", null))
+            device.pressDPadRight()
+            awaitFocus(device, "Размер чата: Высокий")
+            device.pressBack()
+            assertTrue(device.wait(Until.gone(By.text("Значение")), 3_000))
+            awaitFocus(device, "Размер чата: Высокий")
+
+            device.pressBack()
+            awaitFocus(device, "Чат поверх видео: Выключен")
+            device.pressDPadCenter()
+            awaitFocus(device, "Показывать: Выключен")
+            assertTrue(device.wait(Until.hasObject(By.desc("Размер чата: Высокий")), 3_000))
+            device.pressBack()
+            awaitFocus(device, "Чат поверх видео: Выключен")
+            device.pressBack()
+            awaitFocus(device, "Просмотр: Без чата")
+
+            device.pressDPadUp()
+            awaitFocus(device, "Интерфейс:")
+            device.pressDPadCenter()
+            awaitFocus(device, "Предпросмотр эфиров:")
+            device.pressDPadDown()
+            awaitFocus(device, "Звук предпросмотра:")
+            device.pressDPadDown()
+            awaitFocus(device, "Анимации:")
+            device.pressDPadDown()
+            awaitFocus(device, "Часы: Классический")
+            device.pressDPadCenter()
+            awaitFocus(device, "На главной и в плеере:")
+            device.pressDPadDown()
+            awaitFocus(device, "Стиль: Классический")
+            device.pressDPadCenter()
+            assertTrue(device.wait(Until.hasObject(By.text("Значение")), 3_000))
+            awaitFocus(device, "Стиль: Классический")
+            device.pressDPadLeft()
+            awaitFocus(device, "Стиль: Сегменты")
+            assertEquals("SEGMENTS", prefs.getString("clockStyle", null))
+            device.pressBack()
+            assertTrue(device.wait(Until.gone(By.text("Значение")), 3_000))
+            awaitFocus(device, "Стиль: Сегменты")
+            device.pressDPadDown()
+            awaitFocus(device, "В плеере: На видео")
+            device.pressDPadCenter()
+            assertTrue(device.wait(Until.hasObject(By.text("Значение")), 3_000))
+            awaitFocus(device, "В плеере: На видео")
+            device.pressDPadRight()
+            awaitFocus(device, "В плеере: В чате")
+            assertEquals("CHAT", prefs.getString("clockPlacement", null))
+            device.pressBack()
+            assertTrue(device.wait(Until.gone(By.text("Значение")), 3_000))
+            awaitFocus(device, "В плеере: В чате")
+            device.pressBack()
+            awaitFocus(device, "Часы: Сегменты")
+        }
+
+        val reopened = SettingsStore(context).state.value
+        assertEquals(OverlaySize.TALL, reopened.overlaySize)
+        assertEquals(ClockStyle.SEGMENTS, reopened.clockStyle)
+        assertEquals(ClockPlacement.CHAT, reopened.clockPlacement)
+        assertEquals(ChatMode.OFF, reopened.chatMode)
+    }
+
+    private fun awaitFocus(device: UiDevice, prefix: String) {
+        fun matches(node: UiObject2): Boolean =
+            node.contentDescription?.startsWith(prefix) == true || node.children.any(::matches)
+        val deadline = SystemClock.elapsedRealtime() + 3_000
+        do {
+            if (device.findObject(By.focused(true))?.let(::matches) == true) return
+            SystemClock.sleep(40)
+        } while (SystemClock.elapsedRealtime() < deadline)
+        fail("D-pad focus did not reach ${prefix}")
     }
 
     private fun withPreferences(block: (Context, SharedPreferences) -> Unit) {

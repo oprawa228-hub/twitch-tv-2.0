@@ -10,6 +10,7 @@ data class UpdateRelease(
     val apkUrl: String,
     val sha256: String,
     val certificateSha256: String,
+    val notes: String? = null,
 )
 
 object UpdatePolicy {

@@ -3,6 +3,7 @@ package com.oprawa.twitch20.ui
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -65,10 +66,9 @@ import com.oprawa.twitch20.data.Channel
 import com.oprawa.twitch20.settings.AppSettings
 import com.oprawa.twitch20.settings.ChatMode
 import com.oprawa.twitch20.settings.ChatPosition
+import com.oprawa.twitch20.settings.ClockPlacement
+import coil3.compose.AsyncImage
 import kotlinx.coroutines.delay
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @Composable
 fun SettingsScreen(
@@ -78,9 +78,12 @@ fun SettingsScreen(
     onCheckUpdates: () -> Unit,
     onAccount: (() -> Unit)? = null,
     onAbout: (() -> Unit)? = null,
+    accountProfile: Channel? = null,
+    onNotificationExampleSound: () -> Unit = {},
+    accountDisplayName: String? = accountProfile?.name,
 ) {
-    var transientPreview by remember { mutableStateOf<AppSettings?>(null) }
     val editor = rememberSettingsEditorState()
+    var notificationExample by remember(editor.page) { mutableIntStateOf(0) }
     val first = remember { FocusRequester() }
     BackHandler { if (!editor.back()) onBack() }
     Row(Modifier.fillMaxSize().background(TvColors.Background).padding(24.dp),
@@ -89,8 +92,10 @@ fun SettingsScreen(
             Text("Настройки", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = TvColors.Text)
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 ChatSettingsControls(settings, onSave, first, state = editor, onCheckUpdates = onCheckUpdates,
-                    onPreviewSettings = { transientPreview = it }, onAccount = onAccount, onAbout = onAbout)
+                    onAccount = onAccount, onAbout = onAbout, accountName = accountDisplayName,
+                    onNotificationExample = { notificationExample++ })
             }
+            if (editor.page == SettingsEditorPage.OVERVIEW) DinoDecoration(settings.animationsEnabled)
         }
         Column(Modifier.weight(.59f).fillMaxHeight().padding(top = 4.dp).verticalScroll(rememberScrollState())) {
             val target = editor.previewTarget()
@@ -101,21 +106,36 @@ fun SettingsScreen(
                 SettingsPreviewTarget.NOTIFICATIONS -> "Новый эфир"
                 SettingsPreviewTarget.ACCOUNT -> "Аккаунт Twitch"
                 SettingsPreviewTarget.ABOUT -> "Twitch 2.0"
+                SettingsPreviewTarget.VIEWING -> chatModeLabel(settings.chatMode)
                 SettingsPreviewTarget.OVERLAY -> "Чат поверх видео"
                 SettingsPreviewTarget.THEATER -> "Кинотеатр"
             }
             Text(title, color = TvColors.Text, fontSize = 21.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 16.dp))
-            val preview = transientPreview ?: settings
+            val preview = settings
             when (target) {
-                SettingsPreviewTarget.CATALOG, SettingsPreviewTarget.CLOCK -> {
-                    CatalogSettingsPreview(preview, demonstrateCards = target == SettingsPreviewTarget.CATALOG)
+                SettingsPreviewTarget.CATALOG -> CatalogSettingsPreview(preview)
+                SettingsPreviewTarget.CLOCK -> {
+                    Row(Modifier.fillMaxWidth().background(TvColors.Surface, TvShapes.Control).padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text("На главной", Modifier.weight(1f), color = TvColors.Text, fontSize = 16.sp)
+                        TvClock(preview)
+                    }
+                    Text("В плеере", color = TvColors.Muted, fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+                    SettingsPreview(if (preview.clockPlacement == ClockPlacement.CHAT && !preview.chatEnabled)
+                        preview.copy(chatMode = ChatMode.OVERLAY) else preview)
+                    if (preview.clockPlacement == ClockPlacement.CHAT && !preview.chatEnabled) {
+                        Text("Пример размещения · чат выключен", color = TvColors.Muted, fontSize = 14.sp,
+                            modifier = Modifier.padding(top = 8.dp))
+                    }
                 }
                 SettingsPreviewTarget.ANIMATIONS -> {
                     SettingsPreview(preview.copy(chatMode = ChatMode.OFF))
                     Text(if (preview.animationsEnabled) "Движение интерфейса и примеров включено" else "Интерфейс и примеры без анимации. Видео продолжает воспроизводиться.",
                         color = TvColors.Muted, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 12.dp))
                 }
+                SettingsPreviewTarget.VIEWING -> SettingsPreview(preview)
                 SettingsPreviewTarget.OVERLAY, SettingsPreviewTarget.THEATER -> {
                     val mode = if (target == SettingsPreviewTarget.OVERLAY) ChatMode.OVERLAY else ChatMode.THEATER
                     val profile = preview.copy(chatMode = mode)
@@ -123,13 +143,13 @@ fun SettingsScreen(
                     Text("Текст в плеере", color = TvColors.Muted, fontSize = 13.sp,
                         modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
                     ChatPanel(listOf(ChatMessage("native-size", "Nova", "Заряжай сердечки!", "#bf94ff")),
-                        profile.copy(animationsEnabled = false), Modifier.fillMaxWidth().height(64.dp))
-                    if (mode != settings.chatMode) Text("Профиль выключен", color = TvColors.Muted, fontSize = 14.sp,
+                        profile.copy(animationsEnabled = false, showClock = false), Modifier.fillMaxWidth().height(64.dp))
+                    if (mode != settings.chatMode) Text("Профиль выключен · показан пример", color = TvColors.Muted, fontSize = 14.sp,
                         modifier = Modifier.padding(top = 8.dp))
                 }
-                SettingsPreviewTarget.NOTIFICATIONS -> NotificationSettingsPreview(preview)
-                SettingsPreviewTarget.ACCOUNT -> Text("Вход и управление подключением к Twitch", color = TvColors.Muted,
-                    fontSize = 17.sp, lineHeight = 25.sp)
+                SettingsPreviewTarget.NOTIFICATIONS -> NotificationSettingsPreview(preview, notificationExample,
+                    onNotificationExampleSound)
+                SettingsPreviewTarget.ACCOUNT -> AccountSettingsPreview(accountDisplayName, accountProfile?.avatarUrl)
                 SettingsPreviewTarget.ABOUT -> Text("${BuildConfig.VERSION_NAME}\nОбновления, авторы и лицензии", color = TvColors.Muted,
                     fontSize = 17.sp, lineHeight = 25.sp)
             }
@@ -139,10 +159,10 @@ fun SettingsScreen(
 
 @Composable
 internal fun SettingChoice(label: String, value: String, modifier: Modifier = Modifier,
-    accessibilityLabel: String = label, onFocused: () -> Unit = {}, selected: Boolean = false, change: (Int) -> Unit) {
+    accessibilityLabel: String = label, onConfirm: () -> Unit, change: (Int) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Row(modifier.fillMaxWidth().heightIn(min = 46.dp)
-        .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocused() }
+        .onFocusChanged { focused = it.isFocused }
         .onPreviewKeyEvent { event ->
             val key = event.nativeKeyEvent
             when (key.keyCode) {
@@ -152,28 +172,31 @@ internal fun SettingChoice(label: String, value: String, modifier: Modifier = Mo
                     true
                 }
                 AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                    if (key.action == AndroidKeyEvent.ACTION_UP && !key.isCanceled) change(1)
+                    if (key.action == AndroidKeyEvent.ACTION_UP && !key.isCanceled) onConfirm()
                     true
                 }
                 else -> false
             }
         }
-        .semantics(mergeDescendants = true) { role = Role.Button; contentDescription = "$accessibilityLabel: $value"; onClick { change(1); true } }
+        .semantics(mergeDescendants = true) {
+            role = Role.Button
+            contentDescription = "$accessibilityLabel: $value"
+            onClick { onConfirm(); true }
+        }
         .focusable()
         .background(if (focused) TvColors.Focus else TvColors.Surface, RoundedCornerShape(8.dp))
         .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, Modifier.weight(1f), fontSize = 16.sp, lineHeight = 20.sp, maxLines = 2,
             color = if (focused) TvColors.Background else TvColors.Text)
-        if (selected) Text("✓", fontSize = 16.sp, color = if (focused) TvColors.Background else TvColors.Link)
-        Text(value, Modifier.widthIn(max = 140.dp), fontSize = 15.sp, lineHeight = 20.sp, maxLines = 2,
+        Text("‹  $value  ›", Modifier.widthIn(max = 158.dp), fontSize = 15.sp, lineHeight = 20.sp, maxLines = 2,
             color = if (focused) TvColors.Background else TvColors.Muted)
     }
 }
 
 @Composable
 internal fun SettingsPageLink(label: String, modifier: Modifier = Modifier,
-    onFocused: () -> Unit = {}, onClick: () -> Unit) {
+    summary: String? = null, expanded: Boolean? = null, onFocused: () -> Unit = {}, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Row(modifier.fillMaxWidth().heightIn(min = 46.dp)
         .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocused() }
@@ -185,21 +208,29 @@ internal fun SettingsPageLink(label: String, modifier: Modifier = Modifier,
                 true
             } else false
         }
-        .semantics(mergeDescendants = true) { role = Role.Button; contentDescription = label; onClick { onClick(); true } }
+        .semantics(mergeDescendants = true) {
+            role = Role.Button
+            contentDescription = if (summary == null) label else "$label: $summary"
+            onClick { onClick(); true }
+        }
         .focusable()
         .background(if (focused) TvColors.Focus else TvColors.Surface, RoundedCornerShape(8.dp))
         .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(label, Modifier.weight(1f), fontSize = 16.sp, lineHeight = 20.sp, maxLines = 2,
-            color = if (focused) TvColors.Background else TvColors.Text)
-        Text("›", modifier = Modifier.clearAndSetSemantics { }, fontSize = 21.sp,
+        Column(Modifier.weight(1f)) {
+            Text(label, fontSize = 16.sp, lineHeight = 20.sp, maxLines = 2,
+                color = if (focused) TvColors.Background else TvColors.Text)
+            if (summary != null) Text(summary, fontSize = 13.sp, lineHeight = 17.sp, maxLines = 2,
+                color = if (focused) TvColors.Background else TvColors.Muted)
+        }
+        Text(when (expanded) { true -> "⌃"; false -> "⌄"; null -> "›" },
+            modifier = Modifier.clearAndSetSemantics { }, fontSize = 21.sp,
             color = if (focused) TvColors.Background else TvColors.Muted)
     }
 }
 
 @Composable
 private fun SettingsPreview(settings: AppSettings) {
-    val clock = rememberSettingsPreviewClock(settings.showClock)
     var tick by remember { mutableIntStateOf(0) }
     val motionEnabled = rememberPreviewMotionEnabled(settings.animationsEnabled)
     // This coroutine is cancelled when the example leaves composition.
@@ -242,19 +273,21 @@ private fun SettingsPreview(settings: AppSettings) {
                         animationSpec = if (motionEnabled) tween(200, easing = FastOutSlowInEasing) else snap(), label = "preview-chat-horizontal")
                     val vertical by animateFloatAsState(if (bottom) 1f else 0f,
                         animationSpec = if (motionEnabled) tween(200, easing = FastOutSlowInEasing) else snap(), label = "preview-chat-vertical")
-                    val chatWidth = (960 * ChatLayout.overlayWidth(settings)).dp
-                    val chatHeight = (540 * ChatLayout.overlayHeight(settings)).dp
+                    val chatWidth by animateDpAsState((960 * ChatLayout.overlayWidth(settings)).dp,
+                        animationSpec = if (motionEnabled) tween(200, easing = FastOutSlowInEasing) else snap(),
+                        label = "preview-chat-width")
+                    val chatHeight by animateDpAsState(minOf((540 * ChatLayout.overlayHeight(settings)).dp, maxHeight),
+                        animationSpec = if (motionEnabled) tween(200, easing = FastOutSlowInEasing) else snap(),
+                        label = "preview-chat-height")
                     ChatPanel(messages, settings, Modifier
                         .offset(x = (maxWidth - chatWidth) * horizontal, y = (maxHeight - chatHeight) * vertical)
                         .width(chatWidth).height(chatHeight))
                 }
             }
-            if (settings.showClock) {
+            if (settings.clockPlacement == ClockPlacement.VIDEO || !settings.chatEnabled) {
                 val clockAlignment = Alignment.TopEnd
                 Box(Modifier.fillMaxHeight().fillMaxWidth(if (theater) 1f - ChatLayout.theaterWidthFraction else 1f)) {
-                    Text(clock, color = TvColors.Text, fontSize = 17.sp,
-                        modifier = Modifier.align(clockAlignment).padding(20.dp)
-                            .background(TvColors.Background.copy(alpha = .65f), RoundedCornerShape(4.dp)).padding(4.dp))
+                    TvClock(settings, Modifier.align(clockAlignment).padding(20.dp))
                 }
             }
             Text("ПРИМЕР", color = TvColors.Text, fontSize = 14.sp,
@@ -264,29 +297,16 @@ private fun SettingsPreview(settings: AppSettings) {
     }
 }
 
-@Composable
-private fun rememberSettingsPreviewClock(enabled: Boolean): String {
-    var clock by remember { mutableStateOf("") }
-    LaunchedEffect(enabled) {
-        while (enabled) {
-            clock = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-            delay(15_000)
-        }
-    }
-    return clock
-}
-
 /** An explanatory catalog crop: same card aspect, typography and focus colors, no remote media. */
 @Composable
-private fun CatalogSettingsPreview(settings: AppSettings, demonstrateCards: Boolean) {
-    val clock = rememberSettingsPreviewClock(settings.showClock)
+private fun CatalogSettingsPreview(settings: AppSettings) {
     val motionEnabled = rememberPreviewMotionEnabled(settings.animationsEnabled)
     val largeText = LocalDensity.current.fontScale > 1.25f
     val columns = if (largeText) 2 else 3
     var previewReady by remember { mutableStateOf(false) }
-    LaunchedEffect(settings.cardPreviewEnabled, demonstrateCards) {
+    LaunchedEffect(settings.cardPreviewEnabled) {
         previewReady = false
-        if (settings.cardPreviewEnabled && demonstrateCards) {
+        if (settings.cardPreviewEnabled) {
             delay(700)
             previewReady = true
         }
@@ -296,7 +316,7 @@ private fun CatalogSettingsPreview(settings: AppSettings, demonstrateCards: Bool
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Прямые эфиры", fontSize = 25.sp, fontWeight = FontWeight.Bold, color = TvColors.Text,
                     modifier = Modifier.weight(1f))
-                if (settings.showClock) Text(clock, fontSize = 16.sp, color = TvColors.Muted)
+                TvClock(settings)
             }
             repeat(if (largeText) 1 else 2) { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -331,41 +351,52 @@ private fun CatalogSettingsPreview(settings: AppSettings, demonstrateCards: Bool
         }
     }
     Text(when {
-        !demonstrateCards -> "На главной и в плеере"
         !settings.cardPreviewEnabled -> "Карточки остаются неподвижными"
-        !motionEnabled -> "Предпросмотр включён; движение примера отключено"
-        else -> "Видео в выделенной карточке · без звука"
+        !motionEnabled -> "Предпросмотр включён · движение примера отключено"
+        settings.previewSoundEnabled -> "На выделенной карточке включён звук эфира"
+        else -> "На выделенной карточке звук эфира выключен"
     }, color = TvColors.Muted, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 12.dp))
 }
 
 @Composable
-private fun NotificationSettingsPreview(settings: AppSettings) {
-    val motionEnabled = rememberPreviewMotionEnabled(settings.animationsEnabled)
-    var visible by remember { mutableStateOf(settings.followNotificationsEnabled) }
-    LaunchedEffect(settings.followNotificationsEnabled, motionEnabled) {
-        visible = settings.followNotificationsEnabled
-        if (visible && motionEnabled) while (true) {
-            delay(4_500)
-            visible = false
-            delay(1_700)
+private fun NotificationSettingsPreview(settings: AppSettings, request: Int, onSound: () -> Unit) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(request) {
+        if (request > 0) {
             visible = true
+            if (settings.notificationSoundEnabled) onSound()
+            delay(5_000)
+            visible = false
         }
     }
     SettingsExampleStage {
-        // A repeating illustration must not announce itself as a real new live event.
         Box(Modifier.fillMaxSize().clearAndSetSemantics {
-            contentDescription = if (settings.followNotificationsEnabled) "Пример уведомления: Дядя на танке в эфире"
-                else "Уведомления о новых эфирах скрыты"
+            contentDescription = if (visible) "Пример уведомления: Дядя на танке в эфире" else "Пример просмотра"
         }) {
             PreviewScene(animationsEnabled = settings.animationsEnabled, modifier = Modifier.fillMaxSize())
             if (visible) LiveNotificationBanner(Channel(id = "settings-example", login = "settings_example",
-                name = "Дядя на танке", title = "Заряжай сердечки!", category = "Мир Танков", imageUrl = ""),
+                name = "Дядя на танке", title = "", category = "Мир Танков", imageUrl = "", liveMessage = "Заряжай сердечки!"),
                 Modifier.align(Alignment.TopCenter).padding(24.dp))
         }
     }
-    Text(if (settings.followNotificationsEnabled) "Когда отслеживаемый канал начинает эфир. Нужен вход в Twitch."
+    Text(if (settings.followNotificationsEnabled) "Во время просмотра, когда канал из подписок начинает эфир. Нужен вход в Twitch."
         else "Уведомления о новых эфирах скрыты", color = TvColors.Muted, fontSize = 14.sp, lineHeight = 20.sp,
         modifier = Modifier.padding(top = 12.dp))
+}
+
+@Composable
+private fun AccountSettingsPreview(displayName: String?, avatarUrl: String?) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (displayName != null && !avatarUrl.isNullOrBlank()) {
+            AsyncImage(avatarUrl, contentDescription = null,
+                modifier = Modifier.size(56.dp).clip(CircleShape))
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(displayName ?: "Гость", color = TvColors.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Text(if (displayName == null) "Войдите, чтобы открыть подписки" else "Аккаунт Twitch подключён",
+                color = TvColors.Muted, fontSize = 16.sp, lineHeight = 22.sp)
+        }
+    }
 }
 
 @Composable

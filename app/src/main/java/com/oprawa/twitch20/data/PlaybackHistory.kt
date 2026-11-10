@@ -22,6 +22,16 @@ class PlaybackHistory(context: Context) {
         prefs.edit().putString("positions", json.toString()).apply()
     }
 
+    @Synchronized fun readSpeed(id: String): Float =
+        if (HistoryPolicy.validId(id)) VodPlaybackSpeed.sanitize(prefs.getFloat("vod_speed_$id", 1f)) else 1f
+
+    @Synchronized fun saveSpeed(id: String, speed: Float) {
+        if (!HistoryPolicy.validId(id) || speed !in VodPlaybackSpeed.options) return
+        val editor = prefs.edit()
+        if (speed == 1f) editor.remove("vod_speed_$id") else editor.putFloat("vod_speed_$id", speed)
+        editor.apply()
+    }
+
     private fun load(): List<PlaybackPosition> = runCatching {
         val raw = prefs.getString("positions", "[]").orEmpty()
         if (raw.length > 64_000) return@runCatching emptyList()
@@ -40,9 +50,18 @@ internal data class PlaybackPosition(val kind: String, val id: String, val posit
 internal object HistoryPolicy {
     private val identifier = Regex("[A-Za-z0-9_-]{1,200}")
 
+    fun validId(id: String): Boolean = identifier.matches(id)
+
     fun save(current: List<PlaybackPosition>, kind: String, id: String, positionMs: Long): List<PlaybackPosition> {
-        if (kind !in setOf("vod", "clip") || !identifier.matches(id)) return current
+        if (kind !in setOf("vod", "clip") || !validId(id)) return current
         val remaining = current.filterNot { it.kind == kind && it.id == id }
         return if (positionMs <= 0) remaining else (remaining + PlaybackPosition(kind, id, positionMs)).takeLast(100)
     }
+}
+
+
+internal object VodPlaybackSpeed {
+    val options = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+    fun sanitize(speed: Float): Float = speed.takeIf { it in options } ?: 1f
+    fun label(speed: Float): String = speed.toString().removeSuffix(".0") + "×"
 }

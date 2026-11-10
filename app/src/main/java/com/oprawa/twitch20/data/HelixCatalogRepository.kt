@@ -65,7 +65,9 @@ class HelixCatalogRepository(
                 else thumbnail(TwitchJson.text(live, "thumbnail_url"), 640, 360),
             live?.let { HelixCatalogJson.count(it, "viewer_count") } ?: 0, live != null,
             avatarUrl = TwitchJson.text(user, "profile_image_url"),
-            liveStreamId = live?.let { TwitchJson.text(it, "id") }.orEmpty())
+            liveStreamId = live?.let { TwitchJson.text(it, "id") }.orEmpty(),
+            description = TwitchJson.text(user, "description"),
+            bannerUrl = TwitchJson.text(user, "offline_image_url"))
     }
 
     /** Progressive recent feed: three latest broadcasts per followed channel, six channels/page.

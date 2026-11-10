@@ -73,6 +73,7 @@ private data class CatalogEntry(
     val details: (() -> Unit)? = null,
     val kind: CatalogKind = CatalogKind.Channel,
     val typeLabel: String = "",
+    val avatar: String = "",
 )
 
 /** Production content only. The host owns navigation and stores selectedKey per route. */
@@ -99,16 +100,17 @@ fun CatalogScreen(
     revision: Long = 0,
     allowFocusRestore: Boolean = true,
     previewEnabled: Boolean = true,
+    previewSoundEnabled: Boolean = false,
     resolvePreview: (suspend (Channel) -> String)? = null,
 ) {
     val mayRestoreFocus by rememberUpdatedState(allowFocusRestore)
     val entries = buildList {
         channels.forEach { channel ->
-            add(CatalogEntry("channel:${channel.id}", channel.name, channel.title,
+            add(CatalogEntry("channel:${channel.id}", channel.name, if (channel.live) channel.title else "Записи и клипы канала",
                 channel.category, channel.imageUrl,
-                if (channel.live) "${channel.viewers} зрителей" else "Не в эфире",
+                if (channel.live) viewerLabel(channel.viewers) else "Не в эфире",
                 { onChannel(channel) }, { onChannelDetails(channel) },
-                typeLabel = if (channel.live) "В ЭФИРЕ" else ""))
+                typeLabel = if (channel.live) "В ЭФИРЕ" else "", avatar = channel.avatarUrl))
         }
         categories.forEach { category ->
             add(CatalogEntry("category:${category.id}", category.name, "", "Категория",
@@ -137,7 +139,7 @@ fun CatalogScreen(
     var focusedEntryKey by remember { mutableStateOf<String?>(null) }
     val focusedChannel = channels.firstOrNull { "channel:${it.id}" == focusedEntryKey }
     val preview = rememberCatalogVideoPreview(focusedChannel, previewEnabled,
-        state.isScrollInProgress, resolvePreview)
+        state.isScrollInProgress, resolvePreview, previewSoundEnabled)
 
     LaunchedEffect(gridHasFocus) {
         if (gridHasFocus && suspendedIndex >= 0) {
@@ -324,30 +326,36 @@ private fun CatalogCard(entry: CatalogEntry, imageHeight: Dp, requester: FocusRe
             // A real image may be unavailable; keep a quiet stable slot, never a fake stream image.
             Text(entry.name.take(2).uppercase(), modifier = Modifier.align(Alignment.Center),
                 fontSize = 28.sp, color = TvColors.Muted)
-            AsyncImage(model = entry.image, contentDescription = null,
+            if (entry.kind == CatalogKind.Channel && entry.typeLabel != "В ЭФИРЕ" && entry.avatar.isNotBlank())
+                AsyncImage(entry.avatar, null, Modifier.align(Alignment.Center).size(78.dp).clip(CircleShape),
+                    contentScale = ContentScale.Crop)
+            else AsyncImage(model = entry.image, contentDescription = null,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             if (preview != null) CatalogVideoPreview(preview, Modifier.fillMaxSize())
-            if (entry.typeLabel == "В ЭФИРЕ") {
-                Box(Modifier.align(Alignment.TopStart).padding(8.dp).size(9.dp)
-                    .background(TvColors.Live, CircleShape)
-                    .border(1.dp, TvColors.Background.copy(alpha = .7f), CircleShape))
-            } else if (entry.typeLabel.isNotBlank()) Text(entry.typeLabel,
+            if (entry.typeLabel.isNotBlank() && entry.typeLabel != "В ЭФИРЕ") Text(entry.typeLabel,
                 Modifier.align(Alignment.TopStart).padding(6.dp)
                     .background(TvColors.Background.copy(alpha = .9f), RoundedCornerShape(3.dp))
                     .padding(horizontal = 5.dp, vertical = 2.dp),
                 color = TvColors.Text,
                 fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            if (entry.badge.isNotBlank()) Text(entry.badge,
+            if (entry.badge.isNotBlank()) Row(
                 Modifier.align(if (entry.kind == CatalogKind.Video) Alignment.BottomEnd else Alignment.BottomStart).padding(6.dp)
                     .background(TvColors.Background.copy(alpha = .9f), RoundedCornerShape(3.dp))
-                    .padding(horizontal = 5.dp, vertical = 2.dp),
-                color = TvColors.Text, fontSize = 11.sp, maxLines = 1)
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                if (entry.typeLabel == "В ЭФИРЕ") Box(Modifier.size(6.dp).background(TvColors.Live, CircleShape))
+                Text(entry.badge, color = TvColors.Text, fontSize = 11.sp, maxLines = 1)
+            }
         }
         Column(Modifier.padding(horizontal = 5.dp, vertical = 4.dp)) {
             when (entry.kind) {
                 CatalogKind.Channel -> {
-                    Text(entry.name, color = TvColors.Text, fontSize = 15.sp, lineHeight = 18.sp,
-                        fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        if (entry.avatar.isNotBlank()) AsyncImage(entry.avatar, null,
+                            Modifier.size(26.dp).clip(CircleShape), contentScale = ContentScale.Crop)
+                        Text(entry.name, color = TvColors.Text, fontSize = 15.sp, lineHeight = 18.sp,
+                            fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                     Text(entry.description, color = TvColors.Text, fontSize = 12.sp,
                         lineHeight = 15.sp, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(entry.category, color = TvColors.Muted, fontSize = 11.sp, lineHeight = 14.sp,

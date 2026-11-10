@@ -183,14 +183,14 @@ class TwitchAuth(context: Context, private val clientId: String) {
             val live = followedPages("streams/followed", "user_id", latest, epoch)
             requireCurrent(epoch)
             val channels = FollowedCatalog.merge(followed, live)
-            refreshLiveAvatars(channels.filter { it.live }.map { it.id }, epoch)
+            refreshAvatars(channels.map { it.id }, epoch)
             requireCurrent(epoch)
             channels.map { it.copy(avatarUrl = profileImages[it.id]?.first.orEmpty()) }
         }
     }
 
     /** Optional public metadata, fetched in batches and cached; never hides a valid follow list. */
-    private suspend fun refreshLiveAvatars(ids: List<String>, epoch: Long) {
+    private suspend fun refreshAvatars(ids: List<String>, epoch: Long) {
         val now = SystemClock.elapsedRealtime()
         val missing = ids.filter { now - (profileImages[it]?.second ?: -21_600_000L) >= 21_600_000L }
         for (batch in missing.chunked(100)) {

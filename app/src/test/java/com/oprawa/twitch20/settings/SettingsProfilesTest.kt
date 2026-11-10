@@ -112,6 +112,10 @@ class SettingsProfilesTest {
             "theaterOpacity" to .2f, "overlayOpacity" to .4f, "showClock" to false))
         assertEquals(OverlaySize.MEDIUM, settings.overlaySize)
         assertTrue(settings.cardPreviewEnabled)
+        assertTrue(settings.previewSoundEnabled)
+        assertFalse(settings.notificationSoundEnabled)
+        assertEquals(ClockStyle.CLASSIC, settings.clockStyle)
+        assertEquals(ClockPlacement.VIDEO, settings.clockPlacement)
         assertEquals(1f, settings.chatOpacity, 0f)
         assertEquals(.2f, settings.theaterStyle.opacity, 0f)
         assertFalse(settings.showClock)
@@ -119,9 +123,10 @@ class SettingsProfilesTest {
     }
 
     @Test fun newSettingsRoundTripPreservesSizePreviewClockAndInactiveProfiles() {
-        val settings = AppSettings(chatMode = ChatMode.OFF, overlaySize = OverlaySize.LARGE,
+        val settings = AppSettings(chatMode = ChatMode.OFF, overlaySize = OverlaySize.TALL,
             cardPreviewEnabled = false, showClock = false, overlayStyle = ChatStyle(14, .25f),
-            theaterStyle = ChatStyle(22, .1f))
+            theaterStyle = ChatStyle(22, .1f), clockStyle = ClockStyle.SEGMENTS,
+            clockPlacement = ClockPlacement.CHAT, previewSoundEnabled = false, notificationSoundEnabled = true)
         assertEquals(settings, SettingsCodec.decode(SettingsCodec.encode(settings)))
     }
 

@@ -50,7 +50,7 @@ class SidebarNavigationTest {
         assertFalse(device.hasObject(By.desc("О приложении")))
     }
 
-    @Test fun refreshKeepsFocusedChannelAndOfflineRemovalRestoresNeighbourThenBackOrigin() = withSidebar { fixture ->
+    @Test fun refreshKeepsFocusedChannelAcrossOfflineTransitionAndBackRestoresOrigin() = withSidebar { fixture ->
         focus("Bravo, в эфире", prefix = true)
         assertTrue(device.wait(Until.hasObject(By.text("Предпросмотр Bravo")), 3_000))
         fixture.update(listOf(charlie, bravo.copy(viewers = 900), alpha, offline))
@@ -59,8 +59,11 @@ class SidebarNavigationTest {
         assertFocused("Bravo, в эфире", prefix = true)
         assertFalse("Offline subscriptions must not occupy the live sidebar", device.hasObject(By.descStartsWith("Offline, в эфире")))
         fixture.update(listOf(charlie, bravo.copy(live = false), alpha, offline))
-        assertFocused("Charlie, в эфире", prefix = true)
-        assertTrue(device.wait(Until.hasObject(By.text("Предпросмотр Charlie")), 3_000))
+        assertTrue(device.wait(Until.hasObject(By.desc("Bravo, офлайн")), 3_000))
+        assertFocused("Bravo, офлайн")
+        device.pressDPadCenter()
+        assertTrue(device.wait(Until.hasObject(By.text("Открыт канал bravo")), 3_000))
+        assertEquals(0, fixture.shortActions.get())
         device.pressBack()
         assertTrue("A transient focus loss discarded the original catalog",
             device.wait(Until.hasObject(By.text("Каталог streams")), 3_000))

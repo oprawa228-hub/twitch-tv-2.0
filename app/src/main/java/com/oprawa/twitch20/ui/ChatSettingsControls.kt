@@ -1,47 +1,29 @@
 package com.oprawa.twitch20.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
+import com.oprawa.twitch20.BuildConfig
 import com.oprawa.twitch20.settings.AppSettings
 import com.oprawa.twitch20.settings.ChatMode
-import android.view.KeyEvent as AndroidKeyEvent
+import com.oprawa.twitch20.settings.ClockPlacement
+import com.oprawa.twitch20.settings.ClockStyle
 
-/** Shared immediate settings editor. Only a focused picker option remains transient. */
 @Composable
 internal fun ChatSettingsControls(
     settings: AppSettings,
@@ -50,159 +32,164 @@ internal fun ChatSettingsControls(
     onPreviewMode: (ChatMode?) -> Unit = {},
     state: SettingsEditorState = rememberSettingsEditorState(),
     onCheckUpdates: (() -> Unit)? = null,
-    onPreviewSettings: (AppSettings?) -> Unit = {},
     onCloseProfile: (() -> Unit)? = null,
     onAccount: (() -> Unit)? = null,
     onAbout: (() -> Unit)? = null,
+    accountName: String? = null,
+    onNotificationExample: (() -> Unit)? = null,
 ) {
-    var selection by remember(state.page) { mutableStateOf<SettingsSelection?>(null) }
-    var lastChoice by remember(state.page) { mutableStateOf<SettingsChoice?>(null) }
-    val previewCallback by rememberUpdatedState(onPreviewSettings)
-    LaunchedEffect(selection) { previewCallback(selection?.preview()) }
-    DisposableEffect(Unit) { onDispose { previewCallback(null) } }
-    val launchers = remember {
-        (listOf("ACCOUNT", "OVERLAY", "THEATER", "INTERFACE", "CLOCK", "NOTIFICATIONS", "ABOUT", "UPDATES") +
-            SettingsChoice.entries.map { it.name }).associateWith { FocusRequester() }
+    var expanded by remember(state.page) { mutableStateOf<String?>(null) }
+    var returningTo by remember(state.page) { mutableStateOf<String?>(null) }
+    val launchers = remember(state.page) { mutableMapOf<String, FocusRequester>() }
+    val editorFocus = remember { FocusRequester() }
+    BackHandler(enabled = state.page != SettingsEditorPage.OVERVIEW || expanded != null) {
+        when {
+            expanded != null -> {
+                returningTo = expanded
+                expanded?.let(state::focusSetting)
+                expanded = null
+            }
+            onCloseProfile != null -> onCloseProfile()
+            else -> state.back()
+        }
     }
-    BackHandler(enabled = state.page != SettingsEditorPage.OVERVIEW || selection != null) {
-        if (selection != null) selection = null
-        else if (onCloseProfile != null) onCloseProfile()
-        else state.back()
-    }
-    LaunchedEffect(state.page, selection != null) {
+    LaunchedEffect(state.page, expanded) {
         onPreviewMode(when (state.page) {
             SettingsEditorPage.OVERLAY -> ChatMode.OVERLAY
             SettingsEditorPage.THEATER -> ChatMode.THEATER
             else -> null
         })
         withFrameNanos { }
-        val restore = when {
-            selection != null -> firstFocus
-            state.page == SettingsEditorPage.OVERVIEW -> when (state.overviewFocus) {
-                "ACCOUNT" -> firstFocus
-                "INTERFACE" -> if (onAccount == null) firstFocus else launchers.getValue("INTERFACE")
-                else -> launchers[state.overviewFocus] ?: firstFocus
-            }
-            lastChoice != null -> launchers[lastChoice!!.name] ?: firstFocus
-            else -> firstFocus
-        }
+        val key = returningTo ?: if (state.page == SettingsEditorPage.OVERVIEW) state.overviewFocus else state.focusedSetting
+        val restore = if (expanded != null) editorFocus else launchers[key] ?: firstFocus
         restore.requestFocus()
+        returningTo = null
     }
-    fun openChoice(mode: ChatMode, choice: SettingsChoice) {
-        lastChoice = choice
-        selection = SettingsSelection(settings, mode, choice)
+
+    @Composable
+    fun Link(key: String, label: String, first: Boolean = false, summary: String? = null, action: () -> Unit) {
+        val created = remember(key, first) { if (first) firstFocus else FocusRequester() }
+        val focus = launchers.getOrPut(key) { created }
+        SettingsPageLink(label, Modifier.focusRequester(focus), summary = summary, onFocused = {
+            if (state.page == SettingsEditorPage.OVERVIEW) state.rememberOverviewFocus(key)
+            else state.focusSetting(key)
+        }, onClick = action)
     }
+
+    @Composable
+    fun Parameter(key: String, label: String, value: String, first: Boolean = false, change: (Int) -> Unit) {
+        val created = remember(key, first) { if (first) firstFocus else FocusRequester() }
+        val focus = launchers.getOrPut(key) { created }
+        val open = expanded == key
+        SettingsPageLink(label, Modifier.focusRequester(focus), summary = value, expanded = open,
+            onFocused = { state.focusSetting(key) }) { expanded = if (open) null else key }
+        if (open) {
+            SettingChoice("Значение", value, Modifier.padding(start = 12.dp).focusRequester(editorFocus),
+                accessibilityLabel = label, onConfirm = { returningTo = key; expanded = null }, change = change)
+        }
+    }
+
+    @Composable
+    fun Toggle(key: String, label: String, enabled: Boolean, first: Boolean = false, change: () -> Unit) {
+        Parameter(key, label, enabledLabel(enabled), first) { change() }
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        val picker = selection
-        if (picker != null) {
-            Text(picker.title, color = TvColors.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
-            picker.options.forEachIndexed { index, option ->
-                TextSizeOption(option.label, selected = index == picker.selectedIndex,
-                    modifier = if (index == picker.selectedIndex) Modifier.focusRequester(firstFocus) else Modifier,
-                    accessibilityLabel = "${picker.title}: ${option.label}",
-                    onFocused = { selection = picker.focus(index) },
-                    onConfirm = {
-                        onChange(picker.focus(index).confirm())
-                        selection = null
-                    })
-            }
-        } else when (state.page) {
+        when (state.page) {
             SettingsEditorPage.OVERVIEW -> {
-                if (onAccount != null) SettingsPageLink("Аккаунт", Modifier.focusRequester(firstFocus),
-                    onFocused = { state.rememberOverviewFocus("ACCOUNT") }, onClick = onAccount)
-                SettingsPageLink("Интерфейс", Modifier.focusRequester(if (onAccount == null) firstFocus else launchers.getValue("INTERFACE")),
-                    onFocused = { state.rememberOverviewFocus("INTERFACE") }) { state.open(SettingsEditorPage.INTERFACE) }
-                SettingsPageLink("Чат поверх видео", Modifier.focusRequester(launchers.getValue("OVERLAY")),
-                    onFocused = { state.rememberOverviewFocus("OVERLAY") }) { state.open(SettingsEditorPage.OVERLAY) }
-                SettingsPageLink("Кинотеатр", Modifier.focusRequester(launchers.getValue("THEATER")),
-                    onFocused = { state.rememberOverviewFocus("THEATER") }) { state.open(SettingsEditorPage.THEATER) }
-                SettingsPageLink("Часы", Modifier.focusRequester(launchers.getValue("CLOCK")),
-                    onFocused = { state.rememberOverviewFocus("CLOCK") }) { state.open(SettingsEditorPage.CLOCK) }
-                SettingsPageLink("Уведомления", Modifier.focusRequester(launchers.getValue("NOTIFICATIONS")),
-                    onFocused = { state.rememberOverviewFocus("NOTIFICATIONS") }) { state.open(SettingsEditorPage.NOTIFICATIONS) }
-                if (onAbout != null) SettingsPageLink("О приложении", Modifier.focusRequester(launchers.getValue("ABOUT")),
-                    onFocused = { state.rememberOverviewFocus("ABOUT") }, onClick = onAbout)
-                else if (onCheckUpdates != null) SettingsPageLink("Проверить обновления", Modifier.focusRequester(launchers.getValue("UPDATES")),
-                    onFocused = { state.rememberOverviewFocus("UPDATES") }, onClick = onCheckUpdates)
+                if (onAccount != null) Link("ACCOUNT", "Аккаунт", first = true,
+                    summary = accountName ?: "Гость", action = onAccount)
+                val previewStatus = if (settings.cardPreviewEnabled) "Предпросмотр вкл." else "Предпросмотр выкл."
+                val animationStatus = if (settings.animationsEnabled) "анимации вкл." else "анимации выкл."
+                val clockStatus = if (settings.showClock) "часы вкл." else "часы скрыты"
+                Link("INTERFACE", "Интерфейс", first = onAccount == null,
+                    summary = "$previewStatus · $animationStatus · $clockStatus") {
+                    state.open(SettingsEditorPage.INTERFACE)
+                }
+                Link("VIEWING", "Просмотр", summary = chatModeLabel(settings.chatMode)) {
+                    state.open(SettingsEditorPage.VIEWING)
+                }
+                Link("NOTIFICATIONS", "Уведомления", summary = enabledLabel(settings.followNotificationsEnabled)) {
+                    state.open(SettingsEditorPage.NOTIFICATIONS)
+                }
+                if (onAbout != null || onCheckUpdates != null) Link("ABOUT", "О приложении", summary = BuildConfig.VERSION_NAME) {
+                    state.open(SettingsEditorPage.ABOUT)
+                }
+            }
+            SettingsEditorPage.ABOUT -> {
+                SettingsSectionTitle("О приложении · ${BuildConfig.VERSION_NAME}")
+                if (onCheckUpdates != null) Link("UPDATES", "Проверить обновления", first = true, action = onCheckUpdates)
+                if (onAbout != null) Link("LICENSES", "Авторы и лицензии", first = onCheckUpdates == null, action = onAbout)
+            }
+            SettingsEditorPage.VIEWING -> {
+                SettingsSectionTitle("Просмотр")
+                Link("OVERLAY", "Чат поверх видео", first = true, summary = if (settings.overlayEnabled)
+                    overlaySizeLabel(settings.overlaySize) else "Выключен") { state.open(SettingsEditorPage.OVERLAY) }
+                Link("THEATER", "Кинотеатр", summary = if (settings.theaterEnabled)
+                    textSizeLabel(settings.theaterStyle.textSizeSp) else "Выключен") { state.open(SettingsEditorPage.THEATER) }
             }
             SettingsEditorPage.OVERLAY, SettingsEditorPage.THEATER -> {
                 val mode = if (state.page == SettingsEditorPage.OVERLAY) ChatMode.OVERLAY else ChatMode.THEATER
-                val style = settings.styleFor(mode)
-                val active = settings.chatMode == mode
-                Text(chatModeLabel(mode), color = TvColors.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
-                SettingChoice("Показывать", enabledLabel(active), Modifier.focusRequester(firstFocus), selected = active) {
+                SettingsSectionTitle(chatModeLabel(mode))
+                Toggle("ENABLED", "Показывать", settings.chatMode == mode, first = true) {
                     onChange(settings.toggleChat(mode))
                 }
-                if (mode == ChatMode.OVERLAY) SettingsPageLink("Размер чата: ${overlaySizeLabel(settings.overlaySize)}",
-                    Modifier.focusRequester(launchers.getValue("OVERLAY_SIZE"))) { openChoice(mode, SettingsChoice.OVERLAY_SIZE) }
-                SettingsPageLink("Размер текста: ${textSizeLabel(style.textSizeSp)}",
-                    Modifier.focusRequester(launchers.getValue("TEXT_SIZE"))) { openChoice(mode, SettingsChoice.TEXT_SIZE) }
-                if (mode == ChatMode.OVERLAY) {
-                    SettingsPageLink("Фон чата: ${opacityLabel(style.opacity)}",
-                        Modifier.focusRequester(launchers.getValue("OPACITY"))) { openChoice(mode, SettingsChoice.OPACITY) }
-                    SettingsPageLink("Положение: ${positionLabel(settings.chatPosition)}",
-                        Modifier.focusRequester(launchers.getValue("POSITION"))) { openChoice(mode, SettingsChoice.POSITION) }
+                val choices = if (mode == ChatMode.OVERLAY) listOf(SettingsChoice.OVERLAY_SIZE, SettingsChoice.TEXT_SIZE,
+                    SettingsChoice.OPACITY, SettingsChoice.POSITION) else listOf(SettingsChoice.TEXT_SIZE)
+                for (choice in choices) {
+                    val selection = SettingsSelection(settings, mode, choice)
+                    Parameter(choice.name, selection.title, selection.options[selection.selectedIndex].label) {
+                        onChange(selection.step(it))
+                    }
                 }
             }
             SettingsEditorPage.INTERFACE -> {
-                Text("Интерфейс", color = TvColors.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
-                SettingChoice("Предпросмотр эфиров", enabledLabel(settings.cardPreviewEnabled), Modifier.focusRequester(firstFocus),
-                    onFocused = { state.focusSetting("CARD_PREVIEW") },
-                    selected = settings.cardPreviewEnabled) { onChange(settings.copy(cardPreviewEnabled = !settings.cardPreviewEnabled)) }
-                SettingChoice("Анимации", if (settings.animationsEnabled) "Включены" else "Выключены",
-                    onFocused = { state.focusSetting("ANIMATIONS") },
-                    selected = settings.animationsEnabled) { onChange(settings.copy(animationsEnabled = !settings.animationsEnabled)) }
+                SettingsSectionTitle("Интерфейс")
+                Toggle("CARD_PREVIEW", "Предпросмотр эфиров", settings.cardPreviewEnabled, first = true) {
+                    onChange(settings.copy(cardPreviewEnabled = !settings.cardPreviewEnabled))
+                }
+                Toggle("PREVIEW_SOUND", "Звук предпросмотра", settings.previewSoundEnabled) {
+                    onChange(settings.copy(previewSoundEnabled = !settings.previewSoundEnabled))
+                }
+                Toggle("ANIMATIONS", "Анимации", settings.animationsEnabled) {
+                    onChange(settings.copy(animationsEnabled = !settings.animationsEnabled))
+                }
+                Link("CLOCK", "Часы", summary = if (settings.showClock) clockStyleLabel(settings.clockStyle) else "Скрыты") {
+                    state.open(SettingsEditorPage.CLOCK)
+                }
             }
             SettingsEditorPage.CLOCK -> {
-                Text("Часы", color = TvColors.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
-                SettingChoice("На главной и в плеере", if (settings.showClock) "Показаны" else "Скрыты", Modifier.focusRequester(firstFocus),
-                    selected = settings.showClock) { onChange(settings.copy(showClock = !settings.showClock)) }
+                SettingsSectionTitle("Часы")
+                Toggle("CLOCK_ENABLED", "На главной и в плеере", settings.showClock, first = true) {
+                    onChange(settings.copy(showClock = !settings.showClock))
+                }
+                Parameter("CLOCK_STYLE", "Стиль", clockStyleLabel(settings.clockStyle)) { delta ->
+                    val styles = ClockStyle.entries
+                    onChange(settings.copy(clockStyle = styles[(settings.clockStyle.ordinal + delta).mod(styles.size)]))
+                }
+                Parameter("CLOCK_PLACEMENT", "В плеере", clockPlacementLabel(settings.clockPlacement)) { delta ->
+                    val placements = ClockPlacement.entries
+                    onChange(settings.copy(clockPlacement = placements[(settings.clockPlacement.ordinal + delta).mod(placements.size)]))
+                }
             }
             SettingsEditorPage.NOTIFICATIONS -> {
-                Text("Уведомления", color = TvColors.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
-                SettingChoice("Новые эфиры каналов", if (settings.followNotificationsEnabled) "Показаны" else "Скрыты",
-                    Modifier.focusRequester(firstFocus), selected = settings.followNotificationsEnabled) {
+                SettingsSectionTitle("Уведомления")
+                Toggle("NOTIFICATIONS_ENABLED", "Новые эфиры подписок", settings.followNotificationsEnabled, first = true) {
                     onChange(settings.copy(followNotificationsEnabled = !settings.followNotificationsEnabled))
                 }
+                Toggle("NOTIFICATION_SOUND", "Звук уведомлений", settings.notificationSoundEnabled) {
+                    onChange(settings.copy(notificationSoundEnabled = !settings.notificationSoundEnabled))
+                }
+                if (onNotificationExample != null) Link("NOTIFICATION_EXAMPLE", "Показать пример", action = onNotificationExample)
             }
         }
     }
 }
-/** Focus previews; only a completed OK press confirms. Radio mark stays on the draft value. */
+
 @Composable
-private fun TextSizeOption(label: String, selected: Boolean, modifier: Modifier,
-    accessibilityLabel: String, onFocused: () -> Unit, onConfirm: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    val foreground = if (focused) TvColors.Background else TvColors.Text
-    Row(modifier.fillMaxWidth().heightIn(min = 46.dp)
-        .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocused() }
-        .onPreviewKeyEvent { event ->
-            val key = event.nativeKeyEvent
-            if (key.keyCode in setOf(AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER,
-                    AndroidKeyEvent.KEYCODE_NUMPAD_ENTER)) {
-                if (key.action == AndroidKeyEvent.ACTION_UP && !key.isCanceled) onConfirm()
-                true
-            } else false
-        }
-        .semantics(mergeDescendants = true) {
-            role = Role.RadioButton
-            this.selected = selected
-            contentDescription = accessibilityLabel
-            onClick { onConfirm(); true }
-        }
-        .focusable()
-        .background(if (focused) TvColors.Focus else TvColors.Surface, RoundedCornerShape(8.dp))
-        .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        RadioButton(selected = selected, onClick = null,
-            colors = RadioButtonDefaults.colors(selectedColor = foreground, unselectedColor = foreground))
-        Text(label, modifier = Modifier.weight(1f), fontSize = 16.sp, lineHeight = 21.sp, color = foreground)
-    }
+private fun SettingsSectionTitle(title: String) {
+    Text(title, color = TvColors.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
 }
 
 internal fun enabledLabel(enabled: Boolean) = if (enabled) "Включён" else "Выключен"
