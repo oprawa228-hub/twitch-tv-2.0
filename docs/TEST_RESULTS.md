@@ -1,5 +1,12 @@
 # Проверки Twitch 2.0
 
+## Доставлена beta.13-preview.1 / code15
+
+По поручению пользователя опубликован точный проверенный APK без пересборки: [выпуск](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/tag/v0.1.0-beta.13-preview.1). SHA-256 `34ac192c678e2ffad137ff50d67ed1b26c0706499f2c87546a12f19209de95df`, постоянная подпись. Публичные APK/manifest/checksum совпали; тестовый канал обновлён. Настоящее OTA14→15 через приложение и Android INSTALL/OPEN на Twitch20Release/API30/гость прошло; установленный SHA совпал, оба профиля чата и часы сохранены. Описание установленного выпуска загрузилось с GitHub.
+
+[Публикация/OTA и границы проверки](RELEASE_UI2_PREVIEW.md) · [Изменения UI/UX и прежние тесты](UI2_PREVIEW.md). Source/tag `d320a2f`, дерево точно соответствует локальному `cade3c4`. Физический TV, аккаунт и история VOD именно в этом гостевом OTA не проверены. Коммерческая заглушка остаётся открытой. Следующий выпуск требует code16; существующие assets не перезаписывать.
+
+
 ## Доставка beta.11 подтверждена
 
 - [Скачать APK](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.11/Twitch20-0.1.0-beta.11.apk), [страница выпуска](https://github.com/oprawa228-hub/twitch-tv-2.0/releases/tag/v0.1.0-beta.11). Размер 2 821 901 байт, code13, SHA-256 `7140b4d528963a6ca17fe716453e6dcf5cc0e31a70b25d8ec063ce9898280ff1`.
