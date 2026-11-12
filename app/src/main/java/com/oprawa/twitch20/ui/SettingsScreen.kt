@@ -414,10 +414,10 @@ private fun ReleaseOverview(state: com.oprawa.twitch20.update.UpdateState) {
             Text("Последний опубликованный выпуск · ${lastPublished.versionName}",
                 color = TvColors.Link, fontSize = 14.sp)
         }
-        val notes = state.available?.notes ?: state.currentNotes ?: lastPublished?.notes
-        if (!notes.isNullOrBlank()) {
+        val notes = state.releaseNotes()
+        if (notes != null) {
             Text("Что нового", color = TvColors.Link, fontSize = 15.sp)
-            Text(formatReleaseNotes(notes), color = TvColors.Muted, fontSize = 15.sp,
+            Text(formatReleaseNotes(notes.body), color = TvColors.Muted, fontSize = 15.sp,
                 lineHeight = 21.sp, maxLines = 7, overflow = TextOverflow.Ellipsis)
         }
     }

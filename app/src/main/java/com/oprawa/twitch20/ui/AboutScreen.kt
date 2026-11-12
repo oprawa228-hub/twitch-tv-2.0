@@ -27,6 +27,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import com.oprawa.twitch20.BuildConfig
 import com.oprawa.twitch20.update.UpdateManager
+import com.oprawa.twitch20.update.UpdateState
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -106,24 +107,28 @@ fun UpdatesScreen(updater: UpdateManager, onBack: () -> Unit) {
     val activity = checkNotNull(LocalActivity.current)
     val prefs = remember(activity) { activity.getSharedPreferences("updates", Context.MODE_PRIVATE) }
     var testChannel by remember { mutableStateOf(prefs.getBoolean("testChannel", true)) }
-    var showNotes by remember { mutableStateOf(false) }
+    var openedNotes by remember { mutableStateOf<ReleaseNotes?>(null) }
     var restoreNotesFocus by remember { mutableStateOf(false) }
     val primaryFocus = remember { FocusRequester() }
     val notesButtonFocus = remember { FocusRequester() }
     val release = state.available
-    val markdown = release?.notes ?: state.currentNotes
-    val notes = remember(markdown) { markdown?.let(::formatReleaseNotes)?.takeIf { it.isNotBlank() } }
+    val description = state.releaseNotes()
+    val notes = remember(description) {
+        description?.let { it.copy(body = formatReleaseNotes(it.body)) }?.takeIf { it.body.isNotBlank() }
+    }
+    val opened = openedNotes
     val busy = state.status == "checking" || state.status == "downloading"
+    val canInstall = state.status in setOf("ready", "permission", "installing")
 
     BackHandler {
         when {
-            showNotes -> showNotes = false
+            opened != null -> openedNotes = null
             busy -> updater.cancel()
             else -> onBack()
         }
     }
-    if (showNotes && notes != null) {
-        DocumentReader("Что нового · ${release?.versionName ?: BuildConfig.VERSION_NAME}", notes) { showNotes = false }
+    if (opened != null) {
+        DocumentReader("Что нового · ${opened.version}", opened.body) { openedNotes = null }
     } else {
         LaunchedEffect(Unit) {
             if (restoreNotesFocus && notes != null) notesButtonFocus.requestFocus()
@@ -151,14 +156,14 @@ fun UpdatesScreen(updater: UpdateManager, onBack: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val label = when {
                     busy -> "Отменить"
-                    state.status in setOf("ready", "permission", "installing") -> "Установить обновление"
+                    canInstall -> "Установить обновление"
                     release != null -> "Скачать ${release.versionName}"
                     else -> "Проверить обновления"
                 }
                 TvAction(label, modifier = Modifier.focusRequester(primaryFocus), onClick = {
                     when {
                         busy -> updater.cancel()
-                        state.status in setOf("ready", "permission", "installing") -> updater.install(activity)
+                        canInstall -> updater.install(activity)
                         release != null -> scope.launch { updater.download() }
                         else -> scope.launch { updater.check(testChannel) }
                     }
@@ -173,19 +178,33 @@ fun UpdatesScreen(updater: UpdateManager, onBack: () -> Unit) {
                 if (notes != null) {
                     TvAction("Что нового", {
                         restoreNotesFocus = true
-                        showNotes = true
+                        openedNotes = notes
                     }, Modifier.focusRequester(notesButtonFocus))
+                }
+                if (release != null && !busy && !canInstall) {
+                    TvAction("Проверить снова", {
+                        primaryFocus.requestFocus()
+                        scope.launch { updater.check(testChannel) }
+                    })
                 }
                 TvAction("Назад", onBack)
             }
             if (notes == null && (release != null || state.status == "current")) {
                 Text("Описание выпуска недоступно.", color = TvColors.Muted, fontSize = 16.sp)
             } else if (notes != null) {
-                Text(notes, color = TvColors.Muted, fontSize = 16.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Text("Описание выпуска ${notes.version}", color = TvColors.Link, fontSize = 14.sp)
+                Text(notes.body, color = TvColors.Muted, fontSize = 16.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
         }
     }
 }
+
+internal data class ReleaseNotes(val version: String, val body: String)
+
+internal fun UpdateState.releaseNotes(): ReleaseNotes? =
+    available?.let { release -> release.notes?.let { ReleaseNotes(release.versionName, it) } }
+        ?: currentNotes?.let { ReleaseNotes(BuildConfig.VERSION_NAME, it) }
+        ?: latestPublished?.let { release -> release.notes?.let { ReleaseNotes(release.versionName, it) } }
 
 private val notesHeading = Regex("""^ {0,3}#{1,6}\s+(.+?)(?:\s+#+)?\s*$""")
 private val notesBullet = Regex("""^(\s*)[-+*]\s+""")

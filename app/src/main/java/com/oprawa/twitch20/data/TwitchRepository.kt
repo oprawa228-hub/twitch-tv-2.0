@@ -6,8 +6,6 @@ import com.oprawa.twitch20.auth.StoredSession
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
@@ -62,38 +60,38 @@ class TwitchRepository(
         return (0 until items.length()).map { TwitchJson.channel(items.getJSONObject(it)) }
     }
 
-    suspend fun searchCatalog(query: String): List<CatalogItem> = coroutineScope {
-        if (query.isBlank()) return@coroutineScope emptyList()
-        suspend fun rows(index: String, field: String, selection: String): List<JSONObject>? = try {
-            val data = gql("""
-                query(${'$'}term:String!) {
-                  searchFor(userQuery:${'$'}term, platform:"web", options:{targets:[{index:$index}]}) {
-                    $field { items { $selection } }
-                  }
-                }
-            """.trimIndent(), JSONObject().put("term", query.trim().take(100)))
-            val items = data.optJSONObject("searchFor")?.optJSONObject(field)?.optJSONArray("items")
-                ?: throw TwitchException(TwitchError.SERVICE)
-            (0 until items.length().coerceAtMost(30)).mapNotNull(items::optJSONObject)
-        } catch (_: TwitchException) { null }
+    fun catalogSearch(query: String): SearchCatalog {
+        val term = query.trim().take(100)
+        return SearchCatalog { type -> if (term.isBlank()) emptyList() else searchSection(term, type) }
+    }
 
+    private suspend fun searchSection(term: String, type: SearchCatalogType): List<CatalogItem> {
         // Twitch's public search returns only the first requested index on some queries.
-        val channels = async { rows("CHANNEL", "channels", CHANNEL_FIELDS) }
-        val games = async { rows("GAME", "games", "id name boxArtURL(width:285,height:380)") }
-        val videos = async { rows("VOD", "videos",
-            "id title lengthSeconds previewThumbnailURL(width:640,height:360) owner { login } viewCount createdAt") }
-        val foundChannels = channels.await()
-        val foundGames = games.await()
-        val foundVideos = videos.await()
-        if (foundChannels == null && foundGames == null && foundVideos == null)
-            throw TwitchException(TwitchError.SERVICE)
-        buildList {
-            foundChannels.orEmpty().forEach { add(CatalogItem.Stream(TwitchJson.channel(it))) }
-            foundGames.orEmpty().forEach { add(CatalogItem.Game(Category(TwitchJson.required(it, "id"),
-                TwitchJson.required(it, "name"), TwitchJson.text(it, "boxArtURL")))) }
-            foundVideos.orEmpty().forEach {
-                val login = it.optJSONObject("owner")?.let { owner -> TwitchJson.text(owner, "login") }.orEmpty()
-                if (login.isNotBlank()) add(CatalogItem.Recording(vod(it, login)))
+        val (index, field, selection) = when (type) {
+            SearchCatalogType.Channels -> Triple("CHANNEL", "channels", CHANNEL_FIELDS)
+            SearchCatalogType.Categories -> Triple("GAME", "games", "id name boxArtURL(width:285,height:380)")
+            SearchCatalogType.Recordings -> Triple("VOD", "videos",
+                "id title lengthSeconds previewThumbnailURL(width:640,height:360) owner { login } viewCount createdAt")
+        }
+        val data = gql("""
+            query(${'$'}term:String!) {
+              searchFor(userQuery:${'$'}term, platform:"web", options:{targets:[{index:$index}]}) {
+                $field { items { $selection } }
+              }
+            }
+        """.trimIndent(), JSONObject().put("term", term))
+        val items = data.optJSONObject("searchFor")?.optJSONObject(field)?.optJSONArray("items")
+            ?: throw TwitchException(TwitchError.SERVICE)
+        return (0 until items.length().coerceAtMost(30)).mapNotNull { position ->
+            val row = items.optJSONObject(position) ?: return@mapNotNull null
+            when (type) {
+                SearchCatalogType.Channels -> CatalogItem.Stream(TwitchJson.channel(row))
+                SearchCatalogType.Categories -> CatalogItem.Game(Category(TwitchJson.required(row, "id"),
+                    TwitchJson.required(row, "name"), TwitchJson.text(row, "boxArtURL")))
+                SearchCatalogType.Recordings -> {
+                    val login = row.optJSONObject("owner")?.let { TwitchJson.text(it, "login") }.orEmpty()
+                    login.takeIf(String::isNotBlank)?.let { CatalogItem.Recording(vod(row, it)) }
+                }
             }
         }
     }

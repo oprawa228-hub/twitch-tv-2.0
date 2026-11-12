@@ -64,7 +64,8 @@ fun ChatPanel(messages: List<ChatMessage>, settings: AppSettings, modifier: Modi
                 TvClock(settings, Modifier.align(Alignment.End).padding(horizontal = 10.dp, vertical = 6.dp))
             (when (status) {
                 "replay_loading" -> "Загружаем чат записи…"
-                "replay_unavailable" -> if (shown.isEmpty()) "Чат записи недоступен" else null
+                "replay_reconnecting" -> "Переподключаем чат…"
+                "replay_unavailable" -> "Чат записи недоступен"
                 "replay_empty" -> "В этой части записи нет сообщений"
                 else -> ChatPresentation.statusLabel(status, shown.isNotEmpty())
             })?.let { label ->

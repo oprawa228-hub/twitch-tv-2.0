@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -121,6 +122,17 @@ fun NavigationRail(
                     AndroidKeyEvent.KEYCODE_DPAD_RIGHT)) onFocusOwnership(true)
             false
         }
+        .focusProperties {
+            onEnter = {
+                when (requestedFocusDirection) {
+                    FocusDirection.Left -> {
+                        val target = requesters[selected] ?: requesters.getValue("streams")
+                        if (!target.requestFocus()) cancelFocusChange()
+                    }
+                    FocusDirection.Up, FocusDirection.Down -> cancelFocusChange()
+                }
+            }
+        }
         .focusGroup().padding(horizontal = 10.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         entries.forEachIndexed { index, entry ->
@@ -162,11 +174,15 @@ fun NavigationRail(
                         onLongSelect = { onChannelDetails(channel) },
                         onDirection = { direction ->
                             when {
-                                direction == AndroidKeyEvent.KEYCODE_DPAD_UP && index == 0 -> {
-                                    requesters.getValue("streams").requestFocus(); true
+                                direction == AndroidKeyEvent.KEYCODE_DPAD_UP -> {
+                                    if (index == 0) requesters.getValue("streams").requestFocus()
+                                    else focusChannel(channelIds[index - 1])
+                                    true
                                 }
-                                direction == AndroidKeyEvent.KEYCODE_DPAD_DOWN && index == channels.lastIndex -> {
-                                    requesters.getValue("settings").requestFocus(); true
+                                direction == AndroidKeyEvent.KEYCODE_DPAD_DOWN -> {
+                                    if (index == channels.lastIndex) requesters.getValue("settings").requestFocus()
+                                    else focusChannel(channelIds[index + 1])
+                                    true
                                 }
                                 else -> false
                             }

@@ -23,7 +23,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.google.zxing.BarcodeFormat
@@ -56,6 +59,7 @@ fun AccountScreen(
     var cancelled by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var greeting by remember { mutableStateOf<String?>(null) }
+    var confirmLogout by remember(state.loggedIn) { mutableStateOf(false) }
 
     fun cancelLogin() {
         job?.cancel()
@@ -65,14 +69,38 @@ fun AccountScreen(
         cancelled = true
     }
 
-    LaunchedEffect(Unit) { primaryFocus.requestFocus() }
+    LaunchedEffect(confirmLogout) {
+        withFrameNanos { }
+        primaryFocus.requestFocus()
+    }
     LaunchedEffect(greeting) {
         if (greeting != null) {
             delay(1800)
             greeting = null
         }
     }
-    BackHandler { if (busy && !state.loggedIn) cancelLogin() else onBack() }
+    BackHandler {
+        when {
+            confirmLogout -> confirmLogout = false
+            busy && !state.loggedIn -> cancelLogin()
+            else -> onBack()
+        }
+    }
+
+    if (confirmLogout) {
+        SettingsDetailPage("Аккаунт Twitch") {
+            Text("Выйти из аккаунта Twitch?", color = TvColors.Text, fontSize = 24.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TvAction("Остаться", { confirmLogout = false }, Modifier.focusRequester(primaryFocus))
+                TvAction("Выйти", {
+                    greeting = null
+                    auth.logout()
+                    confirmLogout = false
+                })
+            }
+        }
+        return
+    }
 
     SettingsDetailPage("Аккаунт Twitch") {
         if (state.loggedIn) {
@@ -139,10 +167,7 @@ fun AccountScreen(
             }
             TvAction(action, modifier = Modifier.focusRequester(primaryFocus), onClick = {
                 when {
-                    state.loggedIn -> {
-                        greeting = null
-                        auth.logout()
-                    }
+                    state.loggedIn -> confirmLogout = true
                     busy -> cancelLogin()
                     else -> {
                         busy = true
@@ -182,6 +207,21 @@ fun AccountScreen(
 
 @Composable
 private fun ActivationCard(device: DeviceAuthorization) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val remainingSeconds by produceState((device.remainingMillis() + 999L) / 1000L, device, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                val remaining = device.remainingMillis()
+                value = (remaining + 999L) / 1000L
+                if (remaining == 0L) break
+                delay((remaining - 1L) % 1000L + 1L)
+            }
+        }
+    }
+    if (remainingSeconds == 0L) {
+        Text("Срок действия кода истёк", color = TvColors.Error, fontSize = 20.sp)
+        return
+    }
     val qr by produceState<Bitmap?>(null, device) {
         value = null
         value = withContext(Dispatchers.Default) { createActivationQr(device.verificationUri) }
@@ -201,6 +241,9 @@ private fun ActivationCard(device: DeviceAuthorization) {
             Text("Откройте twitch.tv/activate и введите код", color = TvColors.Text, fontSize = 18.sp)
             Text(device.userCode, color = TvColors.Text, fontSize = 32.sp,
                 fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            val minutes = remainingSeconds / 60L
+            val seconds = (remainingSeconds % 60L).toString().padStart(2, '0')
+            Text("Код действителен ещё $minutes:$seconds", color = TvColors.Muted, fontSize = 16.sp)
         }
     }
 }

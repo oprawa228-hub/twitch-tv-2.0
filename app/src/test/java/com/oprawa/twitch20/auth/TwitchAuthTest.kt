@@ -26,6 +26,15 @@ class TwitchAuthTest {
         assertFalse(device.toString().contains("secret"))
     }
 
+    @Test fun deviceCodeLifetimeUsesItsOriginalDeadline() {
+        val device = DeviceAuthorization("ABCD", "https://www.twitch.tv/activate", "fixture", 30, 5, 0,
+            issuedAtMillis = 100_000L)
+        assertEquals(30_000L, device.remainingMillis(100_000L))
+        assertEquals(1_501L, device.remainingMillis(128_499L))
+        assertEquals(0L, device.remainingMillis(130_000L))
+        assertEquals(0L, device.remainingMillis(150_000L))
+    }
+
     @Test fun offlineFollowRetainsIdentityWithoutInventingAnActiveStream() {
         val entry = JSONObject("""{"broadcaster_id":"42","broadcaster_login":"offline_user","broadcaster_name":"Offline User","followed_at":"2024-01-01T00:00:00Z"}""")
         val channels = FollowedCatalog.merge(listOf(entry), emptyList())

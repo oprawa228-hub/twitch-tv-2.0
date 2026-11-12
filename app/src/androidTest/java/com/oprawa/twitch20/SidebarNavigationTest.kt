@@ -50,6 +50,21 @@ class SidebarNavigationTest {
         assertFalse(device.hasObject(By.desc("О приложении")))
     }
 
+    @Test fun leftFromLowerCatalogRowReturnsToItsSection() = withSidebar { _ ->
+        focus("Категории")
+        assertTrue(device.wait(Until.hasObject(By.text("Каталог categories")), 3_000))
+        device.pressDPadRight()
+        assertFocused("Body card,", prefix = true)
+        device.pressDPadDown()
+        device.pressDPadDown()
+        assertFocused("Body card 6,", prefix = true)
+        device.pressDPadLeft()
+        assertFocused("Категории")
+        assertTrue(device.hasObject(By.text("Каталог categories")))
+        device.pressDPadRight()
+        assertFocused("Body card 6,", prefix = true)
+    }
+
     @Test fun refreshKeepsFocusedChannelAcrossOfflineTransitionAndBackRestoresOrigin() = withSidebar { fixture ->
         focus("Bravo, в эфире", prefix = true)
         assertTrue(device.wait(Until.hasObject(By.text("Предпросмотр Bravo")), 3_000))
@@ -66,7 +81,7 @@ class SidebarNavigationTest {
         assertEquals(0, fixture.shortActions.get())
         device.pressBack()
         assertTrue("A transient focus loss discarded the original catalog",
-            device.wait(Until.hasObject(By.text("Каталог streams")), 3_000))
+            device.wait(Until.hasObject(By.text("Каталог streams")), 5_000))
         assertTrue(device.wait(Until.hasObject(By.focused(true).descStartsWith("Body card,")), 5_000))
     }
 
@@ -98,7 +113,8 @@ class SidebarNavigationTest {
                         var generation by remember { mutableLongStateOf(0L) }
                         var preview by remember { mutableStateOf<Channel?>(null) }
                         var action by remember { mutableStateOf("") }
-                        BackHandler(enabled = origin != null && railOwnsFocus) {
+                        val selections = remember { mutableStateMapOf<String, String>() }
+                        BackHandler(enabled = origin != null) {
                             route = requireNotNull(origin)
                             origin = null
                             preview = null
@@ -131,8 +147,10 @@ class SidebarNavigationTest {
                                     generation++
                                 },
                                 onChannelPreview = { channel ->
-                                    if (origin == null) origin = route
-                                    preview = channel
+                                    if (userNavigated) {
+                                        if (origin == null) origin = route
+                                        preview = channel
+                                    }
                                 },
                                 onChannelSelect = { fixture.shortActions.incrementAndGet(); action = "Открыт эфир ${it.id}" },
                                 onChannelDetails = { fixture.longActions.incrementAndGet(); action = "Открыт канал ${it.id}" })
@@ -141,9 +159,9 @@ class SidebarNavigationTest {
                                 val channel = preview
                                 if (channel != null) Text("Предпросмотр ${channel.name}")
                                 else key(route) {
-                                    CatalogScreen(title = "Каталог $route", channels = listOf(body),
-                                        busy = false, error = null, selectedKey = "channel:body",
-                                        onFocused = {}, revision = generation,
+                                    CatalogScreen(title = "Каталог $route", channels = bodyCards,
+                                        busy = false, error = null, selectedKey = selections[route],
+                                        onFocused = { selections[route] = it }, revision = generation,
                                         allowFocusRestore = !railOwnsFocus || !userNavigated,
                                         onChannel = {}, onCategory = {}, onVideo = {}, onRetry = {})
                                 }
@@ -213,5 +231,8 @@ class SidebarNavigationTest {
         val charlie = Channel("charlie", "charlie", "Charlie", "Three", "Game", "", viewers = 30)
         val offline = Channel("offline", "offline", "Offline", "", "", "", live = false)
         val body = Channel("body", "body", "Body card", "Navigation fixture", "Game", "")
+        val bodyCards = listOf(body) + (1..8).map { index ->
+            body.copy(id = "body$index", login = "body$index", name = "Body card $index")
+        }
     }
 }

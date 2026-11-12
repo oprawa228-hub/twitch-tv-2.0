@@ -61,9 +61,12 @@ import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.oprawa.twitch20.data.Category
 import com.oprawa.twitch20.data.Channel
+import com.oprawa.twitch20.data.SearchCatalogType
 import com.oprawa.twitch20.data.Video
 
-private enum class CatalogKind { Channel, Category, Video }
+private enum class CatalogKind(val searchType: SearchCatalogType) {
+    Channel(SearchCatalogType.Channels), Category(SearchCatalogType.Categories), Video(SearchCatalogType.Recordings),
+}
 
 private data class CatalogEntry(
     val key: String,
@@ -109,6 +112,9 @@ fun CatalogScreen(
     previewEnabled: Boolean = true,
     previewSoundEnabled: Boolean = false,
     resolvePreview: (suspend (Channel) -> String)? = null,
+    searchFailures: Set<SearchCatalogType> = emptySet(),
+    onSearchRetry: () -> Unit = onRetry,
+    searchFallbackFocus: FocusRequester? = null,
 ) {
     val mayRestoreFocus by rememberUpdatedState(allowFocusRestore)
     val motion = rememberPreviewMotionEnabled(animationsEnabled)
@@ -138,6 +144,20 @@ fun CatalogScreen(
         SearchFilter.Categories -> CatalogKind.Category
         SearchFilter.Recordings -> CatalogKind.Video
     }
+    val visibleFailures = if (searchQuery.isNullOrBlank()) emptyList() else {
+        searchFailures.filter { selectedKind == null || it == selectedKind.searchType }
+    }
+    val searchError = when (visibleFailures.size) {
+        0 -> null
+        SearchCatalogType.entries.size -> "Не удалось загрузить результаты поиска"
+        else -> "Не удалось загрузить " + visibleFailures.joinToString(", ") {
+            when (it) {
+                SearchCatalogType.Channels -> "каналы"
+                SearchCatalogType.Categories -> "категории"
+                SearchCatalogType.Recordings -> "записи"
+            }
+        }
+    }
     val entries = if (searchQuery != null && selectedKind != null)
         allEntries.filter { it.kind == selectedKind } else allEntries
     val keys = entries.map { it.key }
@@ -160,6 +180,13 @@ fun CatalogScreen(
         requesterCache.apply { keys.forEach { getOrPut(it) { FocusRequester() } } }
     }
     val emptyRequester = remember { FocusRequester() }
+    val searchRetryVisible by rememberUpdatedState(searchError != null)
+    var searchRetryFocused by remember { mutableStateOf(false) }
+    val searchRetryFocus = Modifier.onFocusChanged {
+        // Retain the final focus state when the successful response removes this action.
+        if (it.isFocused || searchRetryVisible) searchRetryFocused = it.isFocused
+    }
+    val retrySearch = { if (!busy) onSearchRetry() }
     var restored by remember(revision) { mutableStateOf(false) }
     var focusedEntryKey by remember { mutableStateOf<String?>(null) }
     val focusedChannel = channels.firstOrNull { "channel:${it.id}" == focusedEntryKey }
@@ -192,9 +219,11 @@ fun CatalogScreen(
             keys.indexOf(selectedKey) >= (entries.size - 6).coerceAtLeast(0)) onLoadMore()
     }
 
-    LaunchedEffect(keys, revision) {
+    LaunchedEffect(keys, revision, searchError != null) {
         // A background refresh must not steal focus from the navigation rail.
-        if (entries.isNotEmpty() && !restored) {
+        val restoreSearchFocus = searchError == null && searchRetryFocused
+        if (restoreSearchFocus) searchRetryFocused = false
+        if (entries.isNotEmpty() && (!restored || restoreSearchFocus)) {
             val index = keys.indexOf(selectedKey).coerceAtLeast(0)
             withFrameNanos { }
             if (state.layoutInfo.visibleItemsInfo.none { it.key == keys[index] }) state.scrollToItem(if (showSections) index + entries[index].kind.ordinal + 1 else index)
@@ -203,6 +232,9 @@ fun CatalogScreen(
             withFrameNanos { }
             if (mayRestoreFocus) requesters[keys[index]]?.requestFocus()
             restored = true
+        } else if (restoreSearchFocus && mayRestoreFocus) {
+            withFrameNanos { }
+            searchFallbackFocus?.requestFocus()
         }
     }
     // OK on an already previewed rail section must enter its restored card as well.
@@ -213,8 +245,8 @@ fun CatalogScreen(
             requesters[keys[index]]?.requestFocus()
         }
     }
-    LaunchedEffect(busy, error, entries.isEmpty(), allowFocusRestore) {
-        if (!busy && entries.isEmpty() && (searchQuery == null || error != null)) {
+    LaunchedEffect(busy, error, searchError, entries.isEmpty(), allowFocusRestore) {
+        if (!busy && entries.isEmpty() && (searchQuery == null || error != null || searchError != null)) {
             withFrameNanos { }
             if (mayRestoreFocus) emptyRequester.requestFocus()
         }
@@ -237,13 +269,16 @@ fun CatalogScreen(
             }
         }
         Spacer(Modifier.height(12.dp))
-        if (error != null && entries.isNotEmpty()) {
+        val displayError = searchError ?: error
+        if (displayError != null && entries.isNotEmpty()) {
             Row(Modifier.fillMaxWidth().padding(bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(error, Modifier.weight(1f), color = TvColors.Error, fontSize = 14.sp,
+                Text(displayError, Modifier.weight(1f), color = TvColors.Error, fontSize = 14.sp,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
-                TvAction("Повторить", onRetry)
+                if (searchError != null) {
+                    TvAction(if (busy) "Повторяем…" else "Повторить", retrySearch, searchRetryFocus)
+                } else TvAction("Повторить", onRetry)
             }
         }
         if (entries.isEmpty()) {
@@ -251,14 +286,19 @@ fun CatalogScreen(
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(when {
                     searchQuery?.isBlank() == true -> "Введите запрос или воспользуйтесь микрофоном"
+                    searchError != null -> searchError
                     busy -> "Загружаем…"
                     error != null -> error
                     searchQuery != null -> searchFilter.emptyMessage
                     hasMore -> "В этой части списка записей нет"; else -> "Здесь пока ничего нет" },
-                    color = if (error == null) TvColors.Muted else TvColors.Error,
+                    color = if (displayError == null) TvColors.Muted else TvColors.Error,
                     fontSize = 18.sp, modifier = Modifier.padding(horizontal = 32.dp).then(
                         if (searchQuery == null && !busy && error == null && !hasMore) Modifier.focusRequester(emptyRequester).focusable() else Modifier), maxLines = 4)
-                if (!busy && (error != null || hasMore)) {
+                if (searchError != null) {
+                    Spacer(Modifier.height(20.dp))
+                    TvAction(if (busy) "Повторяем…" else "Повторить", retrySearch,
+                        Modifier.focusRequester(emptyRequester).then(searchRetryFocus))
+                } else if (!busy && (error != null || hasMore)) {
                     Spacer(Modifier.height(20.dp))
                     TvAction(if (error != null) "Повторить" else "Искать дальше",
                         if (error == null && hasMore) onLoadMore else onRetry,
@@ -297,7 +337,9 @@ fun CatalogScreen(
                         Column {
                             Text(listOf("Каналы", "Категории", "Записи")[index], color = TvColors.Text,
                                 fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-                            if (section.isEmpty()) Text("Нет результатов", color = TvColors.Muted, fontSize = 14.sp)
+                            if (CatalogKind.entries[index].searchType in searchFailures) {
+                                Text("Не удалось загрузить", color = TvColors.Error, fontSize = 14.sp)
+                            } else if (section.isEmpty()) Text("Нет результатов", color = TvColors.Muted, fontSize = 14.sp)
                             else if (index == 2) Text("Записи Twitch по вашему запросу", color = TvColors.Muted, fontSize = 13.sp)
                         }
                     }

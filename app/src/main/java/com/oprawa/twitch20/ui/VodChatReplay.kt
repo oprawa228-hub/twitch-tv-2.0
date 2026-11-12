@@ -9,6 +9,7 @@ import androidx.media3.common.Player
 import com.oprawa.twitch20.chat.ChatMessage
 import com.oprawa.twitch20.data.TimedChatMessage
 import com.oprawa.twitch20.data.TwitchRepository
+import com.oprawa.twitch20.data.VodChatPage
 import com.oprawa.twitch20.data.replayMessagesAt
 import com.oprawa.twitch20.playback.PlaybackSession
 import kotlinx.coroutines.CancellationException
@@ -16,6 +17,25 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 
 internal data class ReplayChat(val messages: List<ChatMessage>, val status: String)
+
+internal suspend fun loadVodChatPageWithRetry(onRetry: () -> Unit, load: suspend () -> VodChatPage): VodChatPage? {
+    val maxRetries = 4
+    for (attempt in 0..maxRetries) {
+        val page = try {
+            withTimeoutOrNull(7_000) { load() }
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            null
+        }
+        if (page != null) return page
+        if (attempt < maxRetries) {
+            onRetry()
+            delay(1_000L shl attempt)
+        }
+    }
+    return null
+}
 
 @Composable
 internal fun rememberVodChat(id: String, session: PlaybackSession, repository: TwitchRepository): ReplayChat {
@@ -48,10 +68,9 @@ internal fun rememberVodChat(id: String, session: PlaybackSession, repository: T
                     delay(300)
                     continue
                 }
-                val page = try {
-                    withTimeoutOrNull(7000) { repository.replayChat(id, offset) }
-                } catch (cancel: CancellationException) { throw cancel }
-                catch (_: Exception) { null }
+                val page = loadVodChatPageWithRetry(onRetry = { status = "replay_reconnecting" }) {
+                    repository.replayChat(id, offset)
+                }
                 if (page == null) {
                     status = "replay_unavailable"
                     break

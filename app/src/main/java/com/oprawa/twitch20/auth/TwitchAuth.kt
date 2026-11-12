@@ -44,8 +44,13 @@ class DeviceAuthorization internal constructor(
     val expiresInSeconds: Int,
     val intervalSeconds: Int,
     internal val generation: Long,
-    internal val issuedAtMillis: Long = 0,
+    issuedAtMillis: Long = 0,
 ) {
+    private val expiresAtMillis = issuedAtMillis + expiresInSeconds * 1000L
+
+    internal fun remainingMillis(nowMillis: Long = SystemClock.elapsedRealtime()): Long =
+        (expiresAtMillis - nowMillis).coerceAtLeast(0L)
+
     override fun toString(): String = "DeviceAuthorization(redacted)"
 }
 
@@ -99,13 +104,14 @@ class TwitchAuth(context: Context, private val clientId: String) {
 
     suspend fun awaitLogin(device: DeviceAuthorization): Unit = withContext(Dispatchers.IO) {
         var interval = device.intervalSeconds.toLong().coerceAtLeast(1) * 1000L
-        val deadline = device.issuedAtMillis + device.expiresInSeconds * 1000L
         try {
-            while (SystemClock.elapsedRealtime() < deadline) {
+            while (true) {
+                val remaining = device.remainingMillis()
+                if (remaining == 0L) break
                 requireCurrent(device.generation)
-                delay(interval)
+                delay(minOf(interval, remaining))
                 requireCurrent(device.generation)
-                if (SystemClock.elapsedRealtime() >= deadline) break
+                if (device.remainingMillis() == 0L) break
                 val response = post("https://id.twitch.tv/oauth2/token", mapOf(
                     "client_id" to clientId, "scopes" to SCOPES, "device_code" to device.deviceCode,
                     "grant_type" to "urn:ietf:params:oauth:grant-type:device_code",

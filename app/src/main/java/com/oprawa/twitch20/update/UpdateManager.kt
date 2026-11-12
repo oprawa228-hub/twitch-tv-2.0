@@ -7,6 +7,7 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.CancellationException
@@ -45,11 +46,14 @@ data class UpdateState(
     val currentNotes: String? = null,
     val progressKnown: Boolean = false,
     val latestPublished: UpdateRelease? = null,
+    val checkedAtMs: Long? = null,
+    val checkedTestChannel: Boolean? = null,
 )
 
 /** No credentials; only the new project's public release channel is reachable. */
 class UpdateManager(context: Context) {
     private companion object {
+        const val CHECK_INTERVAL_MS = 5 * 60_000L
         // Cancellation handlers can run on Main. Socket close/cancel must never run there.
         val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         fun cleanup(action: () -> Unit) { cleanupScope.launch { runCatching(action) } }
@@ -81,6 +85,14 @@ class UpdateManager(context: Context) {
             }
             chain.proceed(chain.request())
         }.build()
+
+    suspend fun checkIfStale(includePrerelease: Boolean) {
+        val snapshot = state.value
+        if (snapshot.status !in setOf("idle", "current", "available", "cancelled", "error")) return
+        if (snapshot.checkedTestChannel == includePrerelease &&
+            snapshot.checkedAtMs?.let { SystemClock.elapsedRealtime() - it < CHECK_INTERVAL_MS } == true) return
+        check(includePrerelease)
+    }
 
     suspend fun check(includePrerelease: Boolean = true) {
         cancel()
@@ -124,7 +136,8 @@ class UpdateManager(context: Context) {
                     require(publishedAsset != null && publishedAsset.optLong("size") in 1..UpdatePolicy.MAX_APK_BYTES) {
                         "Файл APK отсутствует или слишком велик"
                     }
-                    val notes = release.opt("body")?.let { it as? String }?.trim()?.takeIf { it.isNotBlank() }
+                    val notes = (release.opt("body") as? String)?.trim()?.takeIf { it.isNotBlank() }
+                        ?: manifest.notes
                     try {
                         UpdatePolicy.validateRelease(manifest, 0, Build.VERSION.SDK_INT, installedCert)
                     } catch (invalid: IllegalArgumentException) {
@@ -143,7 +156,7 @@ class UpdateManager(context: Context) {
             }
             currentCoroutineContext().ensureActive()
             val newest = latestPublished?.takeIf { it.versionCode > currentVersion }
-            publish(when {
+            publishCheck(includePrerelease, when {
                 newest != null -> UpdateState("available", "Доступна версия ${newest.versionName}", available = newest,
                     latestPublished = newest)
                 manifestFailures > 0 -> UpdateState("error", "Не удалось проверить файлы выпуска. Повторите позже.",
@@ -297,6 +310,12 @@ class UpdateManager(context: Context) {
         operationGate.admit(operationToken) { mutable.value = value }
     }
 
+    private fun publishCheck(testChannel: Boolean, value: UpdateState) {
+        publish(if (value.status == "error") value else value.copy(
+            checkedAtMs = SystemClock.elapsedRealtime(), checkedTestChannel = testChannel,
+        ))
+    }
+
     /** REST limits are shared by IP; the fallback remains pinned to our two repository files. */
     private suspend fun checkRawChannel(includePrerelease: Boolean, currentVersion: Long, installedCert: String) {
         val url = UpdatePolicy.rawManifestUrl(includePrerelease)
@@ -309,7 +328,7 @@ class UpdateManager(context: Context) {
             UpdatePolicy.validateRelease(release, 0, Build.VERSION.SDK_INT, installedCert)
         }
         currentCoroutineContext().ensureActive()
-        publish(if (release != null && release.versionCode > currentVersion)
+        publishCheck(includePrerelease, if (release != null && release.versionCode > currentVersion)
             UpdateState("available", "Доступна версия ${release.versionName}", available = release, latestPublished = release)
         else UpdateState("current", if (includePrerelease) "Новых версий пока нет" else "Новых стабильных версий пока нет",
             latestPublished = release))
@@ -355,6 +374,7 @@ class UpdateManager(context: Context) {
     private fun parseRelease(json: JSONObject) = UpdateRelease(
         json.getString("packageName"), json.getLong("versionCode"), json.getString("versionName"),
         json.getInt("minSdk"), json.getString("apkUrl"), json.getString("sha256"), json.getString("certificateSha256"),
+        notes = (json.opt("notes") as? String)?.trim()?.take(8_192)?.takeIf { it.isNotBlank() },
     )
 
     /** Called only after the new archive verifies and only from execute's IO dispatcher. */

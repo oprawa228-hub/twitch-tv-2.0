@@ -34,7 +34,11 @@ class PlayerErrorFocusTest {
     @Test fun backFromTheaterAfterPlaybackErrorFocusesRetry() = exerciseClose("Кинотеатр", 5)
     @Test fun backFromChatAfterPlaybackErrorFocusesRetry() = exerciseClose("Overlay", 4)
 
-    @Test fun firstOkRetriesWhenErrorArrivesAfterHudWasHidden() {
+    @Test fun firstOkRetriesWhenErrorArrivesAfterHudWasHidden() = retryWhenErrorArrivesAfterHudWasHidden(holdOk = false)
+
+    @Test fun heldOkRetriesExactlyOnceWhenErrorArrivesAfterHudWasHidden() = retryWhenErrorArrivesAfterHudWasHidden(holdOk = true)
+
+    private fun retryWhenErrorArrivesAfterHudWasHidden(holdOk: Boolean) {
         var owned: PlaybackSession? = null
         val retries = AtomicInteger()
         val exits = AtomicInteger()
@@ -54,9 +58,11 @@ class PlayerErrorFocusTest {
                 scenario.onActivity { owned!!.play("asset:///missing-hidden-fixture.mp4","hidden-error",false) }
                 assertTrue(device.wait(Until.hasObject(By.text("Видео недоступно")),8_000))
                 settleRemoteMove()
-                device.pressDPadCenter()
+                if (holdOk) device.executeShellCommand("input keyevent --longpress KEYCODE_DPAD_CENTER")
+                else device.pressDPadCenter()
                 val deadline=SystemClock.elapsedRealtime()+3_000
                 while(retries.get()==0 && SystemClock.elapsedRealtime()<deadline) SystemClock.sleep(40)
+                settleRemoteMove()
                 assertEquals("First OK must Retry, not reveal an invisible HUD",1,retries.get())
                 assertEquals(0,exits.get())
             }

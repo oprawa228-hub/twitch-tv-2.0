@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import coil3.compose.AsyncImage
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
@@ -68,10 +69,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.compose.ContentFrame
+import androidx.media3.ui.compose.state.rememberPresentationState
 import androidx.tv.material3.Text
 import com.oprawa.twitch20.data.VodPlaybackSpeed
 import com.oprawa.twitch20.data.VodStoryboard
@@ -81,7 +84,6 @@ import com.oprawa.twitch20.playback.PlaybackStatus
 import com.oprawa.twitch20.settings.AppSettings
 import com.oprawa.twitch20.settings.ChatMode
 import com.oprawa.twitch20.settings.ClockPlacement
-import com.oprawa.twitch20.settings.ChatPosition
 import kotlinx.coroutines.delay
 import java.util.Locale
 
@@ -141,6 +143,11 @@ fun PlayerScreen(
     var timelineEnabled by remember(session) { mutableStateOf(false) }
     var headerHeight by remember { mutableStateOf(140.dp) }
     var hudHeight by remember { mutableStateOf(200.dp) }
+    var videoViewport by remember(session) { mutableStateOf(IntSize.Zero) }
+    var clockHeight by remember { mutableStateOf(48.dp) }
+    val presentation = rememberPresentationState(session.player, keepContentOnReset = false)
+    val videoAspect = presentation.videoSizeDp?.let { it.width / it.height }
+        ?.takeIf { it.isFinite() && it > 0f } ?: (16f / 9f)
     val density=LocalDensity.current
     var timelineFocused by remember { mutableStateOf(false) }
     var focusCaption by remember { mutableStateOf("") }
@@ -238,6 +245,9 @@ fun PlayerScreen(
     val showChat = chatContent != null && effectiveSettings.chatEnabled && !qualityOpen && !speedOpen
     val showSideChat = showChat && theater
     val clockInChat = showChat && effectiveSettings.clockPlacement == ClockPlacement.CHAT
+    val videoClockVisible = effectiveSettings.showClock && !clockInChat && !qualityOpen && !speedOpen
+    val hudChromeVisible = hudVisible && !panelOpen && state.status != PlaybackStatus.Error
+    val videoInset = if (panelOpen) 24.dp else 0.dp
     BoxWithConstraints(Modifier.fillMaxSize()) {
     val playbackAreaWidth = maxWidth - if (panelOpen) 300.dp else 0.dp
     Row(Modifier.fillMaxSize().background(PlayerBackground)
@@ -268,11 +278,10 @@ fun PlayerScreen(
             }
         }.focusable(enabled = !hudVisible && !panelOpen && state.status != PlaybackStatus.Error)) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
-            val contentWidth = maxWidth
-            val contentHeight = maxHeight
             // The ContentFrame stays at the same composition location when panels change size.
-            Column(Modifier.fillMaxSize().padding(if (panelOpen) 24.dp else 0.dp)) {
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Column(Modifier.fillMaxSize().padding(videoInset)) {
+                Box(Modifier.weight(1f).fillMaxWidth().onSizeChanged { videoViewport = it },
+                    contentAlignment = Alignment.Center) {
                     ContentFrame(player = session.player, modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit)
                 }
@@ -288,43 +297,59 @@ fun PlayerScreen(
                 }
             }
 
-            if (chatContent != null && showChat && !theater) {
-                BoxWithConstraints(Modifier.fillMaxSize().padding(
-                    start = ChatLayout.inset, end = ChatLayout.inset,
-                    top = if (hudVisible && !panelOpen) headerHeight else ChatLayout.inset,
-                    bottom = if (hudVisible && !panelOpen) hudHeight else ChatLayout.inset,
-                )) {
-                    val animation = if (effectiveSettings.animationsEnabled) tween<androidx.compose.ui.unit.Dp>(220) else snap()
-                    val targetWidth = (contentWidth * ChatLayout.overlayWidth(effectiveSettings)).coerceAtMost(maxWidth)
-                    val targetHeight = (contentHeight * ChatLayout.overlayHeight(effectiveSettings)).coerceAtMost(maxHeight)
-                    val alignment = ChatLayout.alignment(effectiveSettings.chatPosition)
-                    val x by animateDpAsState(if (alignment == Alignment.TopEnd || alignment == Alignment.BottomEnd) maxWidth - targetWidth else 0.dp, animation)
-                    val y by animateDpAsState(if (alignment == Alignment.BottomStart || alignment == Alignment.BottomEnd) maxHeight - targetHeight else 0.dp, animation)
-                    val width by animateDpAsState(targetWidth, animation)
-                    val height by animateDpAsState(targetHeight, animation)
-                    Box(Modifier.offset(x.coerceAtMost(maxWidth - width.coerceAtMost(maxWidth)),
-                        y.coerceAtMost(maxHeight - height.coerceAtMost(maxHeight)))
-                        .width(width).height(height)) {
-                        chatContent(effectiveSettings)
+            if (videoViewport != IntSize.Zero && (showChat && !theater || videoClockVisible)) {
+                // The frame fits the video into its viewport, leaving letterbox space outside.
+                val viewportWidth = with(density) { videoViewport.width.toDp() }
+                    .coerceAtMost((maxWidth - videoInset * 2).coerceAtLeast(0.dp))
+                val viewportHeight = with(density) { videoViewport.height.toDp() }
+                    .coerceAtMost((maxHeight - videoInset * 2).coerceAtLeast(0.dp))
+                val videoWidth = minOf(viewportWidth, viewportHeight * videoAspect)
+                val videoHeight = videoWidth / videoAspect
+                val videoTop = videoInset + (viewportHeight - videoHeight) / 2
+                val videoBottom = maxHeight - videoTop - videoHeight
+                val inset = ChatLayout.inset
+                val chatTop = maxOf(inset, if (videoClockVisible) clockHeight + 4.dp else 0.dp,
+                    if (hudChromeVisible) headerHeight - videoTop else 0.dp)
+                val chatBottom = maxOf(inset, if (hudChromeVisible) hudHeight - videoBottom else 0.dp)
+                Box(Modifier.offset((maxWidth - videoWidth) / 2, videoTop)
+                    .size(videoWidth, videoHeight).clipToBounds().zIndex(1f)) {
+                    if (videoClockVisible) {
+                        TvClock(effectiveSettings, Modifier.align(Alignment.TopEnd)
+                            .onSizeChanged { clockHeight = with(density) { it.height.toDp() } }
+                            .padding(start = inset, end = inset, top = inset))
+                    }
+                    if (chatContent != null && showChat && !theater) {
+                        BoxWithConstraints(Modifier.fillMaxSize().padding(
+                            start = inset, end = inset, top = chatTop, bottom = chatBottom,
+                        )) {
+                            val animation = if (effectiveSettings.animationsEnabled) tween<androidx.compose.ui.unit.Dp>(220) else snap()
+                            val targetWidth = (videoWidth * ChatLayout.overlayWidth(effectiveSettings)).coerceAtMost(maxWidth)
+                            val targetHeight = (videoHeight * ChatLayout.overlayHeight(effectiveSettings)).coerceAtMost(maxHeight)
+                            val alignment = ChatLayout.alignment(effectiveSettings.chatPosition)
+                            val x by animateDpAsState(if (alignment == Alignment.TopEnd || alignment == Alignment.BottomEnd) maxWidth - targetWidth else 0.dp, animation)
+                            val y by animateDpAsState(if (alignment == Alignment.BottomStart || alignment == Alignment.BottomEnd) maxHeight - targetHeight else 0.dp, animation)
+                            val width by animateDpAsState(targetWidth, animation)
+                            val height by animateDpAsState(targetHeight, animation)
+                            Box(Modifier.offset(x.coerceAtMost(maxWidth - width.coerceAtMost(maxWidth)),
+                                y.coerceAtMost(maxHeight - height.coerceAtMost(maxHeight)))
+                                .width(width).height(height)) {
+                                chatContent(effectiveSettings)
+                            }
+                        }
                     }
                 }
-            }
-            if (!clockInChat && !qualityOpen && !speedOpen) {
-                val chatAtTopEnd = showChat && !theater && effectiveSettings.chatPosition == ChatPosition.TOP_RIGHT
-                val alignment = if (!hudVisible && chatAtTopEnd) Alignment.TopStart else Alignment.TopEnd
-                TvClock(effectiveSettings, Modifier.align(alignment).zIndex(1f).padding(20.dp))
             }
 
             if (state.status == PlaybackStatus.Buffering) {
                 Text(if (state.firstFrameMs == null) "Подключение к видео…" else "Буферизация…",
                     color = PlayerText, fontSize = 16.sp,
-                    modifier = Modifier.align(Alignment.Center)
+                    modifier = Modifier.align(Alignment.Center).zIndex(2f)
                         .background(PlayerPanel.copy(alpha = 0.92f), RoundedCornerShape(6.dp))
                         .padding(horizontal = 20.dp, vertical = 12.dp))
             }
 
             if (state.status == PlaybackStatus.Error && !panelOpen) {
-                Column(Modifier.align(Alignment.Center).width(440.dp)
+                Column(Modifier.align(Alignment.Center).zIndex(2f).width(440.dp)
                     .background(PlayerPanel, RoundedCornerShape(8.dp)).padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text("Видео недоступно", color = PlayerText, fontSize = 23.sp,
@@ -339,7 +364,7 @@ fun PlayerScreen(
                         PlayerAction("Назад") { onBack() }
                     }
                 }
-            } else if (hudVisible && !panelOpen) {
+            } else if (hudChromeVisible) {
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.10f)))
                 Row(Modifier.align(Alignment.TopStart).fillMaxWidth()
                     .onSizeChanged { headerHeight=with(density) { it.height.toDp() } }
@@ -581,12 +606,14 @@ private fun PlayerAction(label: String, modifier: Modifier = Modifier,
             val key = event.nativeKeyEvent
             if (key.keyCode in confirmKeys) {
                 val held = key.isLongPress || key.eventTime - key.downTime >= ViewConfiguration.getLongPressTimeout()
-                if (key.action == AndroidKeyEvent.ACTION_DOWN && held && !longTriggered) {
+                if (key.action == AndroidKeyEvent.ACTION_DOWN && held && !longTriggered && onLongClick != null) {
                     longTriggered = true
-                    onLongClick?.invoke(key.keyCode)
+                    onLongClick(key.keyCode)
                 }
                 if (key.action == AndroidKeyEvent.ACTION_UP) {
-                    if (!key.isCanceled && !longTriggered) { if (held) onLongClick?.invoke(null) else onClick() }
+                    if (!key.isCanceled && !longTriggered) {
+                        if (held && onLongClick != null) onLongClick(null) else onClick()
+                    }
                     longTriggered = false
                 }
                 true // A held OK never produces a second short action on release.
