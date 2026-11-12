@@ -1,9 +1,10 @@
 {
   "packageName": "com.oprawa.twitch20",
-  "versionCode": 19,
-  "versionName": "0.1.0-beta.13-preview.5",
+  "versionCode": 21,
+  "versionName": "0.1.0-beta.13-preview.7",
   "minSdk": 23,
-  "apkUrl": "https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.13-preview.5/Twitch20-0.1.0-beta.13-preview.5.apk",
-  "sha256": "2664d42a1ad96519a3ee0cfa29fcbfd39f6ecbc43d9bc5dd966b6610df4b6973",
-  "certificateSha256": "f81f51fd47d318aaf79f1fe3c81159fe6eca405f881f4f0b19d097d1c4b006f7"
+  "apkUrl": "https://github.com/oprawa228-hub/twitch-tv-2.0/releases/download/v0.1.0-beta.13-preview.7/Twitch20-0.1.0-beta.13-preview.7.apk",
+  "sha256": "6912b5d4798ff01eb43afc16d9a8d17f13fdb63fd5834fcc0bfe1dceb7bf7f23",
+  "certificateSha256": "f81f51fd47d318aaf79f1fe3c81159fe6eca405f881f4f0b19d097d1c4b006f7",
+  "notes": "Тестовое обновление для Android TV. Устанавливается поверх beta.13-preview.5.\n\n### Что нового\n\n- Стрелка влево из каталога возвращает к его разделу. Стрелка вправо и кнопка «Назад» восстанавливают выбранную карточку при возврате.\n- Поиск сохраняет путь назад. Если один тип результатов временно недоступен, остальные видны, а запрос можно повторить.\n- Выход из Twitch требует подтверждения. Рядом с QR-кодом виден оставшийся срок действия.\n- Чат записи восстанавливает загрузку после временного сбоя. Часы и Overlay размещаются в пределах видео, а удержание OK выполняет действие обычной кнопки один раз.\n- В разделе «Обновления» можно открыть полное описание опубликованной версии и повторно проверить выбранный канал."
 }
