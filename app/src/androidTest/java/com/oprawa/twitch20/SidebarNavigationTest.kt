@@ -65,15 +65,25 @@ class SidebarNavigationTest {
         assertFocused("Body card 6,", prefix = true)
     }
 
-    @Test fun expandingMenuKeepsVisibleCatalogCardsInPlace() = withSidebar { _ ->
-        val second = By.descStartsWith("Body card 1,")
-        val before = requireNotNull(device.findObject(second)).visibleBounds
+    @Test fun expandingMenuMakesRoomAndClosingRestoresCatalog() = withSidebar { _ ->
+        val first = By.descStartsWith("Body card,")
+        val railItem = By.desc("Рекомендации")
+        val before = requireNotNull(device.findObject(first)).visibleBounds
+        val compactRail = requireNotNull(device.findObject(railItem)).visibleBounds
+        assertTrue("The first card is underneath the compact menu", before.left > compactRail.right)
         device.pressDPadLeft()
         assertFocused("Рекомендации")
-        assertEquals(before, requireNotNull(device.findObject(second)).visibleBounds)
+        device.waitForIdle()
+        val open = requireNotNull(device.findObject(first)).visibleBounds
+        val openRail = requireNotNull(device.findObject(railItem)).visibleBounds
+        assertTrue("The menu did not expand", openRail.width() > compactRail.width())
+        assertTrue("The grid did not yield width to the rail", open.width() < before.width())
+        assertTrue("The catalog did not move with the opening menu", open.left > before.left)
+        assertTrue("The first card is underneath the menu", open.left > openRail.right)
         device.pressDPadRight()
         assertFocused("Body card,", prefix = true)
-        assertEquals(before, requireNotNull(device.findObject(second)).visibleBounds)
+        assertTrue(device.wait(Until.gone(By.text("Поиск")), 3_000))
+        assertEquals(before, requireNotNull(device.findObject(first)).visibleBounds)
     }
 
     @Test fun refreshKeepsFocusedChannelAcrossOfflineTransitionAndBackRestoresOrigin() = withSidebar { fixture ->
@@ -139,7 +149,7 @@ class SidebarNavigationTest {
                                     AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_DPAD_LEFT,
                                     AndroidKeyEvent.KEYCODE_DPAD_RIGHT)) userNavigated = true
                             false
-                        }, channelPreview = preview != null, rail = { needsFocus ->
+                        }, rail = { needsFocus ->
                             NavigationRail(selected = preview?.let { "live:${it.id}" } ?: route,
                                 needsInitialFocus = needsFocus, allowExpand = userNavigated,
                                 accountName = "Fixture", following = fixture.following.value,
@@ -194,8 +204,7 @@ class SidebarNavigationTest {
             val target = device.findObject(if (prefix) By.descStartsWith(description) else By.desc(description))
                 ?: throw AssertionError("No sidebar target $description")
             if (ownsRemoteFocus(target)) return
-            // Rail expansion overlaps the first card. Enter with Left, then move one
-            // row at a time using the actual focused rail item, independent of its width.
+            // Enter with Left, then navigate using the actual focused rail item.
             val current = focusedRailItem(device)
             val before = current?.contentDescription
             visited += before ?: "<каталог>"

@@ -144,7 +144,7 @@ Source release-tag commit: [13545b8c14942af0529be204d85c91b24a9f3fee](https://gi
 - Проект `D:/Project/Twitch TV 2.0`, пакет `com.oprawa.twitch20`, независимый от старого приложения/канала. AGP8.13.2/Gradle8.13/JDK17/Kotlin2.3.10/SDK36/min23/BOM2026.06.01/TV1.1.0/Media3 1.11.1/**OkHttp4.12.1**/Coil3.4.0. OkHttp5.5.1 требует SDK37; не возвращать без осознанного обновления toolchain.
 - Primary `Twitch20Test`/5560: API30 x86,1280×720,4core/2GB/SwiftShader. Secondary `Twitch20Release`/5562: тот же образ,2core/1.5GB. Общий host, во время stress были R8/второй emulator; физического TV нет. Старый AVD не изменён.
 - Один PlaybackSession на просмотр, панели не владеют ExoPlayer. HTTP cleanup вне main, StrictMode сохранён. Viewing владеет lifecycle; Retry заново получает signed URL. Back перехватывается до Compose focus traversal, действие на uncancelled UP.
-- OAuth AtomicFile/AndroidKeystore AES-GCM; public Client ID допустим в APK, client secret/GitHub credentials не встраивать. Signing key `C:/Users/Opraw/.android/signing/twitch20/release.jks`, локальный backup `D:/Private-Backups/Twitch20-signing`; пароли не выводить. Идентичность подписи сохранить.
+- OAuth использует AtomicFile и AndroidKeystore AES-GCM. В APK допустим публичный Client ID. Сборка читает настройки постоянного ключа из локального `signing.properties`. Резервная копия хранится отдельно.
 - Raw `evidence/`, `.local/` и SDK/cache исключены из Git. Документы называют локальные evidence-пути для воспроизведения на workspace; публичные APK/manifest/checksum доступны через Releases. Root единолично управляет устройствами/build/sign/publish.
 
 ## Ограничения и дальнейшее развитие

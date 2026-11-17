@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- White Glitch from Twitch Brand Assets, centered inside the adaptive mask. -->
+    <group
+        android:scaleX="1.75"
+        android:scaleY="1.75"
+        android:translateX="33"
+        android:translateY="29.5">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M5,0 L0,5 V23 H6 V28 L11,23 H15 L24,14 V0 Z M22,13 L18,17 H14 L10.5,20.5 V17 H6 V2 H22 Z M17,5.5 H19 V11.5 H17 Z M11.5,5.5 H13.5 V11.5 H11.5 Z" />
+    </group>
+</vector>

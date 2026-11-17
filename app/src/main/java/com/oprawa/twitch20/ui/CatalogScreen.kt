@@ -46,6 +46,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
@@ -118,23 +119,32 @@ fun CatalogScreen(
 ) {
     val mayRestoreFocus by rememberUpdatedState(allowFocusRestore)
     val motion = rememberPreviewMotionEnabled(animationsEnabled)
-    val allEntries = buildList {
-        channels.forEach { channel ->
-            add(CatalogEntry("channel:${channel.id}", channel.name, if (channel.live) channel.title else "Записи и клипы канала",
+    val openChannel by rememberUpdatedState(onChannel)
+    val openChannelDetails by rememberUpdatedState(onChannelDetails)
+    val openCategory by rememberUpdatedState(onCategory)
+    val openVideo by rememberUpdatedState(onVideo)
+    val channelEntries = remember(channels) {
+        channels.map { channel ->
+            CatalogEntry("channel:${channel.id}", channel.name, if (channel.live) channel.title else "Записи и клипы канала",
                 channel.category, channel.imageUrl,
                 if (channel.live) viewerLabel(channel.viewers) else "Не в эфире",
-                { onChannel(channel) }, { onChannelDetails(channel) },
-                typeLabel = if (channel.live) "В ЭФИРЕ" else "", avatar = channel.avatarUrl))
+                { openChannel(channel) }, { openChannelDetails(channel) },
+                typeLabel = if (channel.live) "В ЭФИРЕ" else "", avatar = channel.avatarUrl)
         }
-        categories.forEach { category ->
-            add(CatalogEntry("category:${category.id}", category.name, "", "Категория",
-                category.imageUrl, "", { onCategory(category) }, kind = CatalogKind.Category))
+    }
+    val categoryEntries = remember(categories) {
+        categories.map { category ->
+            CatalogEntry("category:${category.id}", category.name, "", "Категория",
+                category.imageUrl, "", { openCategory(category) }, kind = CatalogKind.Category)
         }
-        videos.forEach { video ->
-            add(CatalogEntry("video:${video.id}", video.title, video.channelLogin,
-                "", video.imageUrl, formatDuration(video.durationSeconds.toLong()),
-                { onVideo(video) }, kind = CatalogKind.Video,
-                typeLabel = if (video.kind == "clip") "Клип" else "Запись"))
+    }
+    val locale = LocalLocale.current.platformLocale
+    val videoEntries = remember(videos, locale) {
+        videos.map { video ->
+            CatalogEntry("video:${video.id}", video.title, video.channelLogin,
+                "", video.imageUrl, formatDuration(video.durationSeconds.toLong(), locale),
+                { openVideo(video) }, kind = CatalogKind.Video,
+                typeLabel = if (video.kind == "clip") "Клип" else "Запись")
         }
     }
     val showSections = searchQuery != null && searchFilter == SearchFilter.All
@@ -158,9 +168,19 @@ fun CatalogScreen(
             }
         }
     }
-    val entries = if (searchQuery != null && selectedKind != null)
-        allEntries.filter { it.kind == selectedKind } else allEntries
-    val keys = entries.map { it.key }
+    val filterKind = selectedKind.takeIf { searchQuery != null }
+    val sections = remember(channelEntries, categoryEntries, videoEntries, filterKind) {
+        when (filterKind) {
+            CatalogKind.Channel -> listOf(channelEntries)
+            CatalogKind.Category -> listOf(categoryEntries)
+            CatalogKind.Video -> listOf(videoEntries)
+            null -> listOf(channelEntries, categoryEntries, videoEntries)
+        }
+    }
+    val entries = remember(sections) { sections.singleOrNull() ?: sections.flatten() }
+    val keys = remember(entries) { entries.map { it.key } }
+    val posterGrid = sections.all { it.isEmpty() || it.first().kind == CatalogKind.Category }
+    val channelGrid = sections.all { it.isEmpty() || it.first().kind == CatalogKind.Channel }
     val state = rememberLazyGridState()
     var previousFilter by rememberSaveable { mutableStateOf(searchFilter) }
     LaunchedEffect(searchFilter) {
@@ -183,7 +203,8 @@ fun CatalogScreen(
     val retrySearch = { if (!busy) onSearchRetry() }
     var restored by remember(revision) { mutableStateOf(false) }
     var focusedEntryKey by remember { mutableStateOf<String?>(null) }
-    val focusedChannel = channels.firstOrNull { "channel:${it.id}" == focusedEntryKey }
+    val channelsByKey = remember(channels) { channels.associateBy { "channel:${it.id}" } }
+    val focusedChannel = focusedEntryKey?.let { channelsByKey[it] }
     var latest by remember(focusedChannel?.id) { mutableStateOf<Video?>(null) }
     LaunchedEffect(focusedChannel?.id, loadLatestVideo != null, previewEnabled) {
         val login = focusedChannel?.takeUnless { it.live }?.login ?: return@LaunchedEffect
@@ -289,8 +310,6 @@ fun CatalogScreen(
             }
         } else {
             BoxWithConstraints(Modifier.weight(1f).padding(bottom = 20.dp)) {
-            val posterGrid = entries.all { it.kind == CatalogKind.Category }
-            val channelGrid = entries.all { it.kind == CatalogKind.Channel }
             val largeText = LocalDensity.current.fontScale > 1.25f
             val columns = if (posterGrid) { if (largeText) 4 else 5 } else if (largeText) 2 else 3
             val thumbnailWidth = (maxWidth - 8.dp - 16.dp * (columns - 1)) / columns - 6.dp
@@ -305,10 +324,8 @@ fun CatalogScreen(
                 contentPadding = PaddingValues(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize().focusGroup()) {
-                val sections = if (showSections) CatalogKind.entries.map { kind -> entries.filter { it.kind == kind } }
-                    else listOf(entries)
                 sections.forEachIndexed { index, section ->
-                    if (showSections) item(key = "section:$index", span = { GridItemSpan(maxLineSpan) }) {
+                    if (showSections) item(key = "section:$index", contentType = "section", span = { GridItemSpan(maxLineSpan) }) {
                         Column {
                             Text(listOf("Каналы", "Категории", "Записи")[index], color = TvColors.Text,
                                 fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
@@ -318,7 +335,7 @@ fun CatalogScreen(
                             else if (index == 2) Text("Записи Twitch по вашему запросу", color = TvColors.Muted, fontSize = 13.sp)
                         }
                     }
-                    items(section, key = { it.key }) { entry ->
+                    items(section, key = { it.key }, contentType = { it.kind }) { entry ->
                         val archive = latest?.takeIf { entry.key == focusedEntryKey && previewEnabled }
                         val card = archive?.let { entry.copy(
                             image = it.imageUrl, description = it.title,
@@ -330,7 +347,7 @@ fun CatalogScreen(
                         }
                     }
                 }
-                item(key = "catalog-footer", span = { GridItemSpan(maxLineSpan) }) {
+                item(key = "catalog-footer", contentType = "footer", span = { GridItemSpan(maxLineSpan) }) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         val note = when {
                             limitReached -> "Показаны первые 1000 элементов. Выберите категорию или уточните поиск."
@@ -448,8 +465,8 @@ private fun CatalogCard(entry: CatalogEntry, imageHeight: Dp, requester: FocusRe
     }
 }
 
-private fun formatDuration(seconds: Long): String {
+private fun formatDuration(seconds: Long, locale: java.util.Locale): String {
     if (seconds <= 0) return ""
-    return if (seconds >= 3600) "%d:%02d:%02d".format(seconds / 3600, seconds / 60 % 60, seconds % 60)
-        else "%d:%02d".format(seconds / 60, seconds % 60)
+    return if (seconds >= 3600) "%d:%02d:%02d".format(locale, seconds / 3600, seconds / 60 % 60, seconds % 60)
+        else "%d:%02d".format(locale, seconds / 60, seconds % 60)
 }

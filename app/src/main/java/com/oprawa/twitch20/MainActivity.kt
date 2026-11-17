@@ -247,10 +247,11 @@ private fun TwitchApp() {
         if (search != null && (!search.state.value.page.initialized || retrySearch > 0)) search.load()
     }
     val isFollowing = route.kind == "following"
-    val channels = if (isFollowing) followingState.channels
-        else page.items.filterIsInstance<CatalogItem.Stream>().map { it.channel }
-    val categories = page.items.filterIsInstance<CatalogItem.Game>().map { it.category }
-    val videos = page.items.filterIsInstance<CatalogItem.Recording>().map { it.video }
+    val channels = if (isFollowing) followingState.channels else remember(page.items) {
+        page.items.mapNotNull { (it as? CatalogItem.Stream)?.channel }
+    }
+    val categories = remember(page.items) { page.items.mapNotNull { (it as? CatalogItem.Game)?.category } }
+    val videos = remember(page.items) { page.items.mapNotNull { (it as? CatalogItem.Recording)?.video } }
     val channel = channelInfo[route.key]
     val waitingForCatalog = when {
         route.kind in setOf("search", "rail-channel", "account") -> false
@@ -367,8 +368,7 @@ private fun TwitchApp() {
             if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
                 event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER) hasInteracted = true
             false
-        }, channelPreview = route.kind == "rail-channel" && railChannelPreview != null,
-            waitingForContent = waitingForCatalog, rail = { needsFocus ->
+        }, waitingForContent = waitingForCatalog, rail = { needsFocus ->
             NavigationRail(selected=railChannelPreview?.let { "live:${it.id}" } ?: sectionFor(route),
                 // Only explicit commit/back owns the preview origin. Removing an offline
                 // quick channel may briefly report false before its neighbour gains focus.
