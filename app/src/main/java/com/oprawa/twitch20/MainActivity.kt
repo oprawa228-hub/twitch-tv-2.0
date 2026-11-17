@@ -13,12 +13,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,7 +31,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.tv.material3.Text
-import com.oprawa.twitch20.auth.TwitchAuth
 import com.oprawa.twitch20.auth.AuthException
 import com.oprawa.twitch20.auth.DeviceAuthorization
 import com.oprawa.twitch20.chat.ChatClient
@@ -58,14 +57,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private data class Route(val kind: String, val value: String = "", val title: String = "", val categoryArt: String = "") {
-    val key get() = "$kind:$value"
-    val railSection get() = when (kind) {
-        "search", "following", "recordings", "categories", "streams" -> kind
-        else -> null
-    }
-}
-private data class Watching(val id: String, val kind: String, val login: String, val title: String, val subtitle: String, val channel: Channel? = null)
+private const val clipsButtonKey = "action:clips"
+private const val liveButtonKey = "action:live"
 
 @Composable
 private fun TwitchApp() {
@@ -75,10 +68,12 @@ private fun TwitchApp() {
     val settingsStore = remember { SettingsStore(context) }
     val settings by settingsStore.state.collectAsStateWithLifecycle()
     val legacyLive = BuildConfig.LEGACY_TV_CLIENT_ID.isNotEmpty()
-    val auth = remember {
-        TwitchAuth(context, if (legacyLive) BuildConfig.LEGACY_TV_CLIENT_ID else BuildConfig.TWITCH_CLIENT_ID)
-    }
+    val host: TwitchActivityState = androidx.lifecycle.viewmodel.compose.viewModel()
+    val auth = host.auth
     val authState by auth.state.collectAsStateWithLifecycle()
+    val navigation = remember(host, authState.loggedIn, authState.displayName) {
+        host.attachNavigation(authState.loggedIn, authState.displayName)
+    }
     var accountProfile by remember { mutableStateOf<Channel?>(null) }
     LaunchedEffect(authState.loggedIn, authState.displayName) {
         accountProfile = null
@@ -116,10 +111,10 @@ private fun TwitchApp() {
     val updater = remember { UpdateManager(context) }
     val updateState by updater.state.collectAsStateWithLifecycle()
     val catalogState = rememberSaveableStateHolder()
-    var route by remember { mutableStateOf(Route("streams", title = "Рекомендации")) }
-    val history = remember { mutableStateListOf<Route>() }
-    val selections = remember(authState.loggedIn, authState.displayName) { mutableStateMapOf<String,String>() }
-    var watching by remember { mutableStateOf<Watching?>(null) }
+    var route by navigation.route
+    val history = navigation.history
+    val selections = navigation.selections
+    var watching by navigation.watching
     val watchedChannels = remember(authState.loggedIn, authState.displayName) {
         ChannelWatchHistory(context, if (authState.loggedIn) authState.displayName.lowercase(Locale.ROOT) else "guest")
     }
@@ -152,19 +147,20 @@ private fun TwitchApp() {
             railChannelPreview = fresh.copy(description = shown.description, bannerUrl = shown.bannerUrl)
         }
     }
-    var hasInteracted by remember { mutableStateOf(false) }
+    var hasInteracted by navigation.hasInteracted
     var catalogEntryGeneration by remember { mutableLongStateOf(0L) }
-    var settingsOpen by remember { mutableStateOf(false) }
-    var accountOpen by remember { mutableStateOf(false) }
-    var railPreviewOrigin by remember { mutableStateOf<Route?>(null) }
-    var aboutOpen by remember { mutableStateOf(false) }
-    var aboutPage by remember { mutableStateOf("author") }
-    var exitOpen by remember { mutableStateOf(false) }
+    var settingsOpen by navigation.settingsOpen
+    var accountOpen by navigation.accountOpen
+    var railPreviewOrigin by navigation.railPreviewOrigin
+    var aboutOpen by navigation.aboutOpen
+    var aboutPage by navigation.aboutPage
+    var exitOpen by navigation.exitOpen
     // Android may place initial focus in the first rail item before data arrives.
     // Only a deliberate remote move should prevent the catalog's initial restoration.
     var userNavigated by remember(watching, settingsOpen, aboutOpen, accountOpen, exitOpen) { mutableStateOf(false) }
-    var query by rememberSaveable { mutableStateOf("") }
-    var searchFilter by rememberSaveable { mutableStateOf(SearchFilter.All) }
+    var query by navigation.query
+    var lastSubmittedSearch by navigation.lastSubmittedSearch
+    var searchFilter by navigation.searchFilter
     var searchFiltersFocused by remember(route.kind) { mutableStateOf(false) }
     var voiceUnavailable by remember { mutableStateOf(false) }
     // Identity is part of the cache boundary: logout cannot leave a personal catalog behind.
@@ -256,6 +252,13 @@ private fun TwitchApp() {
     val categories = page.items.filterIsInstance<CatalogItem.Game>().map { it.category }
     val videos = page.items.filterIsInstance<CatalogItem.Recording>().map { it.video }
     val channel = channelInfo[route.key]
+    val waitingForCatalog = when {
+        route.kind in setOf("search", "rail-channel", "account") -> false
+        route.kind in setOf("following", "recordings") && !authState.loggedIn -> false
+        isFollowing || route.kind == "recordings" && !followingState.initialized ->
+            followingState.channels.isEmpty() && !followingState.initialized && followingState.error == null
+        else -> channel == null && page.items.isEmpty() && (page.loading || !page.initialized) && page.error == null
+    }
     var pageJob by remember(pager) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     fun loadMore() { if (pageJob?.isActive != true) pageJob = scope.launch { pager.loadNext() } }
     var clock by remember { mutableStateOf("") }
@@ -285,6 +288,7 @@ private fun TwitchApp() {
         railPreviewOrigin = null
         railChannelPreview = null
         catalogEntryGeneration++
+        if (next.kind == "search") query = next.value
         route = next
     }
     fun navigate(next: Route, push: Boolean = true) {
@@ -294,6 +298,7 @@ private fun TwitchApp() {
     fun submitSearch(value: String) {
         val term = value.trim().take(100)
         query = term
+        lastSubmittedSearch = term
         if (route.kind == "search" && route.value != term) {
             showCatalog(if (term.isBlank()) sectionRoute("search") else Route("search", term, "Результаты поиска"))
         }
@@ -312,9 +317,7 @@ private fun TwitchApp() {
             return
         }
         if (history.isNotEmpty()) {
-            userNavigated=false
-            catalogEntryGeneration++
-            route = history.removeAt(history.lastIndex)
+            showCatalog(history.removeAt(history.lastIndex))
         } else exitOpen=true
     }
     fun openChannel(ch: Channel) {
@@ -336,7 +339,6 @@ private fun TwitchApp() {
         }
     }
     LaunchedEffect(watching) { playerControlsVisible = watching != null }
-    DisposableEffect(auth) { onDispose { auth.close() } }
     DisposableEffect(updater) { onDispose { updater.close() } }
     LaunchedEffect(settings.showClock) {
         while(settings.showClock) { clock=SimpleDateFormat("HH:mm",Locale.getDefault()).format(Date()); delay(15_000) }
@@ -357,7 +359,7 @@ private fun TwitchApp() {
                     onWatched={ elapsed -> if (authState.loggedIn) { watchedChannels.record(active.login, elapsed); watchRevision++ } },
                     onControlsVisibleChanged={playerControlsVisible=it})
             }
-        } else Row(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+        } else CatalogNavigationLayout(Modifier.onPreviewKeyEvent { event ->
             if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
                 event.nativeKeyEvent.keyCode in listOf(android.view.KeyEvent.KEYCODE_DPAD_UP,
                     android.view.KeyEvent.KEYCODE_DPAD_DOWN, android.view.KeyEvent.KEYCODE_DPAD_LEFT,
@@ -365,12 +367,15 @@ private fun TwitchApp() {
             if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
                 event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER) hasInteracted = true
             false
-        }) {
+        }, channelPreview = route.kind == "rail-channel" && railChannelPreview != null,
+            waitingForContent = waitingForCatalog, rail = { needsFocus ->
             NavigationRail(selected=railChannelPreview?.let { "live:${it.id}" } ?: sectionFor(route),
                 // Only explicit commit/back owns the preview origin. Removing an offline
                 // quick channel may briefly report false before its neighbour gains focus.
                 onFocusOwnership={ owns -> railOwnsFocus=owns },
                 allowExpand=userNavigated,
+                needsInitialFocus=needsFocus,
+                animationsEnabled=settings.animationsEnabled,
                 onChannelFocusChanged={focusedRailChannelId=it},
                 onPreview={ section -> if(userNavigated) {
                     val origin = railPreviewOrigin ?: route
@@ -404,13 +409,19 @@ private fun TwitchApp() {
                             val origin = railPreviewOrigin ?: route
                             when {
                                 section == sectionFor(origin) -> restoreRailOrigin()
-                                section == "search" -> { restoreRailOrigin(); navigate(sectionRoute("search")) }
+                                section == "search" -> {
+                                    restoreRailOrigin()
+                                    query = lastSubmittedSearch
+                                    navigate(if (query.isEmpty()) sectionRoute("search")
+                                        else Route("search", query, "Результаты поиска"))
+                                }
                                 else -> navigate(sectionRoute(section), false)
                             }
                         }
                     }
                 })
-            Column(Modifier.weight(1f).fillMaxHeight()) {
+        }) {
+            Column(Modifier.fillMaxSize()) {
                 if(route.kind=="account") {
                     AccountScreen(auth, settings.animationsEnabled, onBack={back()}, profile=accountProfile)
                 } else if(route.kind=="rail-channel" && railChannelPreview != null) {
@@ -466,11 +477,22 @@ private fun TwitchApp() {
                         if (voiceUnavailable) Text("Голосовой ввод недоступен на этом устройстве. Введите запрос с клавиатуры.",
                             Modifier.padding(horizontal = 24.dp), color = TvColors.Muted, fontSize = 14.sp)
                     }
+                    val selected = selections[route.key]
+                    val headerSelected = route.kind == "channel" && (selected == clipsButtonKey || selected == liveButtonKey)
                     channel?.let { ch ->
+                        val clipsFocus = remember(route.key) { FocusRequester() }
+                        val liveFocus = remember(route.key) { FocusRequester() }
+                        LaunchedEffect(route.key, catalogEntryGeneration) {
+                            if (headerSelected && (!railOwnsFocus || !userNavigated)) {
+                                (if (selected == liveButtonKey && ch.live) liveFocus else clipsFocus).requestFocus()
+                            }
+                        }
                         ChannelHeader(ch)
                         Row(Modifier.padding(horizontal=24.dp,vertical=8.dp),horizontalArrangement=Arrangement.spacedBy(14.dp)) {
-                            if(ch.live) TvAction("Смотреть эфир",{openChannel(ch)})
-                            TvAction("Клипы",{navigate(Route("clips",ch.login,"Клипы · ${ch.name}"))})
+                            if(ch.live) TvAction("Смотреть эфир",{openChannel(ch)}, Modifier.focusRequester(liveFocus)
+                                .onFocusChanged { if (it.isFocused) selections[route.key] = liveButtonKey })
+                            TvAction("Клипы",{navigate(Route("clips",ch.login,"Клипы · ${ch.name}"))}, Modifier.focusRequester(clipsFocus)
+                                .onFocusChanged { if (it.isFocused) selections[route.key] = clipsButtonKey })
                         }
                     }
                     Box(Modifier.weight(1f)) { catalogState.SaveableStateProvider(route.key) {
@@ -496,7 +518,7 @@ private fun TwitchApp() {
                             revision=page.revision + catalogEntryGeneration,
                             previewEnabled=settings.cardPreviewEnabled, previewSoundEnabled=settings.previewSoundEnabled,
                             resolvePreview={ liveSources.preview(it.login) },
-                            allowFocusRestore=(!railOwnsFocus || !userNavigated) && (route.kind!="search" || route.value.isNotBlank() && !searchFiltersFocused),
+                            allowFocusRestore=!headerSelected && (!railOwnsFocus || !userNavigated) && (route.kind!="search" || route.value.isNotBlank() && !searchFiltersFocused),
                             onChannelDetails={navigate(Route("channel",it.login,it.name))})
                         }
                     } }
@@ -552,6 +574,7 @@ private fun TwitchApp() {
     onControlsVisibleChanged:(Boolean)->Unit, onWatched:(Long)->Unit = {}) {
     val context=LocalContext.current
     val session=remember { PlaybackSession(context) }
+    val resume = remember(target) { target.resume }
     var metadata by remember(target.id) { mutableStateOf(target.channel) }
     LaunchedEffect(target.login) {
         if(target.login.isNotBlank()) while(true) {
@@ -590,6 +613,7 @@ private fun TwitchApp() {
     val positions=remember { PlaybackHistory(context) }
     val storyboards=remember { VodStoryboardRepository() }
     fun savePosition() {
+        session.resumePoint()?.let { target.resume = it }
         if(target.kind!="live" && session.player.mediaItemCount>0)
             positions.save(target.kind,target.id,PlaybackPolicy.positionToSave(
                 session.player.currentPosition, session.player.duration,
@@ -626,8 +650,9 @@ private fun TwitchApp() {
                 "clip" -> variants.first().url
                 else -> repository.resolveVideo(target.id)
             }
-            session.play(url,"${target.kind}:${target.id}",target.kind=="live",positions.read(target.kind,target.id),
-                requestStartedAtMs=requestStartedAtMs, progressiveVariants=variants)
+            val restart = resume.takeIf { retry == 0 }
+            session.play(url,"${target.kind}:${target.id}",target.kind=="live",restart?.positionMs ?: positions.read(target.kind,target.id),
+                requestStartedAtMs=requestStartedAtMs, progressiveVariants=variants, initialPlayWhenReady=resume?.playWhenReady ?: true)
             if (target.kind == "vod") session.setPlaybackSpeed(positions.readSpeed(target.id))
             if(!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))session.onBackground()
         } catch(cancel:CancellationException){throw cancel}

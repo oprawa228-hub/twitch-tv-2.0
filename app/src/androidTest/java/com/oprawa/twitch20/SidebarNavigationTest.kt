@@ -13,10 +13,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import androidx.tv.material3.Text
 import com.oprawa.twitch20.data.Channel
+import com.oprawa.twitch20.ui.CatalogNavigationLayout
 import com.oprawa.twitch20.ui.CatalogScreen
 import com.oprawa.twitch20.ui.FollowingSidebarState
 import com.oprawa.twitch20.ui.NavigationRail
@@ -63,6 +63,17 @@ class SidebarNavigationTest {
         assertTrue(device.hasObject(By.text("Каталог categories")))
         device.pressDPadRight()
         assertFocused("Body card 6,", prefix = true)
+    }
+
+    @Test fun expandingMenuKeepsVisibleCatalogCardsInPlace() = withSidebar { _ ->
+        val second = By.descStartsWith("Body card 1,")
+        val before = requireNotNull(device.findObject(second)).visibleBounds
+        device.pressDPadLeft()
+        assertFocused("Рекомендации")
+        assertEquals(before, requireNotNull(device.findObject(second)).visibleBounds)
+        device.pressDPadRight()
+        assertFocused("Body card,", prefix = true)
+        assertEquals(before, requireNotNull(device.findObject(second)).visibleBounds)
     }
 
     @Test fun refreshKeepsFocusedChannelAcrossOfflineTransitionAndBackRestoresOrigin() = withSidebar { fixture ->
@@ -122,14 +133,15 @@ class SidebarNavigationTest {
                             railOwnsFocus = false
                             generation++
                         }
-                        Row(Modifier.fillMaxSize().onPreviewKeyEvent {
+                        CatalogNavigationLayout(Modifier.onPreviewKeyEvent {
                             if (it.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN &&
                                 it.nativeKeyEvent.keyCode in listOf(AndroidKeyEvent.KEYCODE_DPAD_UP,
                                     AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_DPAD_LEFT,
                                     AndroidKeyEvent.KEYCODE_DPAD_RIGHT)) userNavigated = true
                             false
-                        }) {
+                        }, channelPreview = preview != null, rail = { needsFocus ->
                             NavigationRail(selected = preview?.let { "live:${it.id}" } ?: route,
+                                needsInitialFocus = needsFocus, allowExpand = userNavigated,
                                 accountName = "Fixture", following = fixture.following.value,
                                 onFocusOwnership = { railOwnsFocus = it },
                                 onPreview = { section ->
@@ -154,7 +166,8 @@ class SidebarNavigationTest {
                                 },
                                 onChannelSelect = { fixture.shortActions.incrementAndGet(); action = "Открыт эфир ${it.id}" },
                                 onChannelDetails = { fixture.longActions.incrementAndGet(); action = "Открыт канал ${it.id}" })
-                            Column(Modifier.weight(1f)) {
+                        }) {
+                            Column(Modifier.fillMaxSize()) {
                                 if (action.isNotBlank()) Text(action)
                                 val channel = preview
                                 if (channel != null) Text("Предпросмотр ${channel.name}")
@@ -176,43 +189,39 @@ class SidebarNavigationTest {
     }
 
     private fun focus(description: String, prefix: Boolean = false) {
-        repeat(32) {
+        val visited = mutableListOf<String>()
+        repeat(20) {
             val target = device.findObject(if (prefix) By.descStartsWith(description) else By.desc(description))
                 ?: throw AssertionError("No sidebar target $description")
-            if (hasFocusedAncestor(target)) return
-            val focused = device.findObject(By.focused(true))
-            if (focused == null) device.pressDPadUp()
-            else {
-                val from = focused.visibleBounds
-                val to = target.visibleBounds
-                when {
-                    from.left >= to.right -> device.pressDPadLeft()
-                    from.centerY() > to.centerY() -> device.pressDPadUp()
-                    else -> device.pressDPadDown()
-                }
+            if (ownsRemoteFocus(target)) return
+            // Rail expansion overlaps the first card. Enter with Left, then move one
+            // row at a time using the actual focused rail item, independent of its width.
+            val current = focusedRailItem(device)
+            val before = current?.contentDescription
+            visited += before ?: "<каталог>"
+            when {
+                current == null -> device.pressDPadLeft()
+                current.visibleBounds.centerY() > target.visibleBounds.centerY() -> device.pressDPadUp()
+                else -> device.pressDPadDown()
             }
-            device.waitForIdle(300)
+            // Accessibility focus is updated asynchronously, even when the main looper is idle.
+            val start = SystemClock.elapsedRealtime()
+            while (SystemClock.elapsedRealtime() - start < 600) {
+                if (focusedRailItem(device)?.contentDescription != before) break
+                SystemClock.sleep(25)
+            }
         }
-        throw AssertionError("D-pad did not reach $description")
+        throw AssertionError("D-pad did not reach $description. Visited $visited")
     }
 
     private fun assertFocused(description: String, prefix: Boolean = false) {
         val deadline = SystemClock.elapsedRealtime() + 4_000
         while (SystemClock.elapsedRealtime() < deadline) {
             val target = device.findObject(if (prefix) By.descStartsWith(description) else By.desc(description))
-            if (target != null && hasFocusedAncestor(target)) return
+            if (target != null && ownsRemoteFocus(target)) return
             SystemClock.sleep(40)
         }
         assertTrue("Focus did not stay/restore on $description", false)
-    }
-
-    private fun hasFocusedAncestor(target: UiObject2): Boolean {
-        var node: UiObject2? = target
-        while (node != null) {
-            if (node.isFocused) return true
-            node = node.parent
-        }
-        return false
     }
 
     private inner class Fixture {

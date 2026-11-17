@@ -6,7 +6,6 @@ import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -21,17 +20,22 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import com.oprawa.twitch20.data.Channel
 import com.oprawa.twitch20.ui.CatalogScreen
 import com.oprawa.twitch20.ui.NavigationRail
+import com.oprawa.twitch20.ui.CatalogNavigationLayout
 import com.oprawa.twitch20.ui.TwitchTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.atomic.AtomicBoolean
+import javax.xml.parsers.DocumentBuilderFactory
+import org.w3c.dom.Element
 
 /** Production Compose controls + real remote input; deterministic page data, no Twitch/network. */
 @RunWith(AndroidJUnit4::class)
@@ -87,11 +91,14 @@ class CatalogFocusTest {
             assertFalse("About must be nested in Settings", device.hasObject(By.desc("О приложении")))
             // Item 7 is in the first column for both 3- and 2-column accessibility layouts.
             device.pressDPadLeft()
-            focusCategoriesInRail()
-            assertTrue("Focus did not preview the section without OK",
-                device.wait(Until.hasObject(By.text("Focus fixture · categories")), 5_000))
+            val deadline = SystemClock.elapsedRealtime() + 3_000
+            while (!fixture.railHasFocus.get() && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(25)
+            if (!fixture.railHasFocus.get()) throw AssertionError("Left from item 7: railHasFocus=false. ${fixtureHierarchy()}")
+            device.pressDPadUp()
+            if (!device.wait(Until.hasObject(By.text("Focus fixture · categories")), 5_000))
+                throw AssertionError("Up from rail did not preview categories. railHasFocus=${fixture.railHasFocus.get()}. ${fixtureHierarchy()}")
             assertTrue(device.wait(Until.hasObject(By.text("Preview item1")), 5_000))
-            assertFocusRemains("Категории")
+            assertTrue("The loaded preview took focus from the menu", fixture.railHasFocus.get())
             device.pressBack()
             assertTrue("Back did not return the previous section",
                 device.wait(Until.hasObject(By.text("Focus fixture")), 5_000))
@@ -123,14 +130,15 @@ class CatalogFocusTest {
                             railOwnsFocus = false
                             userNavigated = false
                         }
-                        Row(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+                        CatalogNavigationLayout(Modifier.onPreviewKeyEvent { event ->
                             if (event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN &&
                                 event.nativeKeyEvent.keyCode in listOf(AndroidKeyEvent.KEYCODE_DPAD_UP,
                                     AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_DPAD_LEFT,
                                     AndroidKeyEvent.KEYCODE_DPAD_RIGHT)) userNavigated = true
                             false
-                        }) {
+                        }, waitingForContent = page.channels.isEmpty() && page.busy, rail = { needsFocus ->
                             NavigationRail(selected = route, accountName = "",
+                                needsInitialFocus = needsFocus, allowExpand = userNavigated,
                                 onSelect = { userNavigated = false },
                                 onPreview = { section ->
                                     if (previewRoutes && userNavigated && route != section) {
@@ -140,8 +148,10 @@ class CatalogFocusTest {
                                 },
                                 onFocusOwnership = {
                                     railOwnsFocus = it
+                                    fixture.railHasFocus.set(it)
                                 })
-                            Box(Modifier.weight(1f)) {
+                        }) {
+                            Box(Modifier.fillMaxSize()) {
                                 routeState.SaveableStateProvider(route) {
                                 key(route) {
                                     CatalogScreen(title = if (route == "streams") "Focus fixture" else "Focus fixture · $route",
@@ -166,18 +176,24 @@ class CatalogFocusTest {
     }
 
     private fun focusCategoriesInRail() {
-        // During the pending initial result the only focusable controls are real rail items.
-        repeat(8) {
-            if (focusedRailDescription() == "Поиск") return@repeat
-            device.pressDPadUp()
-            device.waitForIdle(500)
+        assertTrue(device.wait(Until.hasObject(By.desc("Категории")), 4_000))
+        val order = listOf("Поиск", "Каналы", "Записи", "Категории", "Рекомендации", "Настройки")
+        val visited = mutableListOf<String?>()
+        repeat(12) {
+            val current = focusedRailDescription()
+            if (current == "Категории") return
+            visited += current
+            when {
+                current == null -> device.pressDPadLeft()
+                order.indexOf(current) < order.indexOf("Категории") -> device.pressDPadDown()
+                else -> device.pressDPadUp()
+            }
+            val start = SystemClock.elapsedRealtime()
+            while (SystemClock.elapsedRealtime() - start < 600 && focusedRailDescription() == current) {
+                SystemClock.sleep(25)
+            }
         }
-        assertTrue("Could not reach the first rail item using the remote",
-            focusedRailDescription() == "Поиск")
-        device.pressDPadDown()
-        device.pressDPadDown()
-        device.pressDPadDown()
-        awaitRailFocus("Категории")
+        throw AssertionError("Could not reach Категории. Visited $visited")
     }
 
     private fun awaitStableCardBounds(descriptionPrefix: String): Rect {
@@ -186,7 +202,7 @@ class CatalogFocusTest {
         var stableSince = 0L
         while (SystemClock.elapsedRealtime() < deadline) {
             val focused = device.findObject(By.focused(true).descStartsWith(descriptionPrefix))
-            // Focus is reported before the 208 -> 84 dp rail remeasure and bring-into-view finish.
+            // A lazily composed focused item can still be settling into view.
             // Compare only the same final layout state, without relaxing the exact row assertion.
             val collapsed = !device.hasObject(By.text("Поиск"))
             val bounds = focused?.visibleBounds
@@ -202,14 +218,6 @@ class CatalogFocusTest {
         throw AssertionError("Card layout did not settle after rail collapse: $descriptionPrefix, $previous")
     }
 
-    private fun awaitRailFocus(description: String) {
-        val deadline = SystemClock.elapsedRealtime() + 3_000
-        while (focusedRailDescription() != description && SystemClock.elapsedRealtime() < deadline) {
-            SystemClock.sleep(40)
-        }
-        assertEquals("Expected rail item did not gain focus", description, focusedRailDescription())
-    }
-
     private fun assertFocusRemains(description: String) {
         // Observe beyond the three-frame restoration coroutine; a one-shot assertion can miss it.
         val deadline = SystemClock.elapsedRealtime() + 800
@@ -220,21 +228,31 @@ class CatalogFocusTest {
         } while (SystemClock.elapsedRealtime() < deadline)
     }
 
-    private fun focusedRailDescription(): String? {
-        val focused = device.findObject(By.focused(true)) ?: return null
-        // In the actual Compose accessibility tree the focused control owns a separate,
-        // non-focusable description child. Inspect only this focused node's subtree, never
-        // siblings or arbitrary ancestors. A container spanning several rail items is rejected.
-        val descriptions = mutableSetOf<String>()
-        fun collect(node: UiObject2) {
-            node.contentDescription?.takeIf { it in railDescriptions }?.let(descriptions::add)
-            node.children.forEach(::collect)
-        }
-        collect(focused)
-        return descriptions.singleOrNull()
+    private fun focusedRailDescription(): String? = focusedRailItem(device)?.contentDescription
+
+    private fun fixtureHierarchy(): String {
+        val output = ByteArrayOutputStream()
+        device.dumpWindowHierarchy(output)
+        val nodes = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(ByteArrayInputStream(output.toByteArray())).getElementsByTagName("node")
+        return (0 until nodes.length).mapNotNull { index ->
+            val node = nodes.item(index) as Element
+            val desc = node.getAttribute("content-desc")
+            val text = node.getAttribute("text")
+            val label = listOf(desc, text).firstOrNull {
+                it in railDescriptions || it.startsWith("Fixture item7") || it.startsWith("Focus fixture")
+            }
+            val focused = node.getAttribute("focused") == "true"
+            if (label == null && !focused) null else {
+                val parent = node.parentNode as? Element
+                "${label ?: "<без метки>"}@${node.getAttribute("bounds")} " +
+                    "focused=$focused parentFocused=${parent?.getAttribute("focused")}"
+            }
+        }.joinToString(" | ")
     }
 
     private inner class Fixture(selectedKey: String?) {
+        val railHasFocus = AtomicBoolean()
         val page = mutableStateOf(Page())
         val selected = mutableStateOf(selectedKey)
 

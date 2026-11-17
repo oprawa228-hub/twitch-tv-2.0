@@ -50,11 +50,16 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -156,6 +161,7 @@ fun SettingsScreen(
 
 @Composable
 internal fun SettingChoice(label: String, value: String, modifier: Modifier = Modifier,
+    canStepLeft: Boolean = true, canStepRight: Boolean = true,
     onFocused: () -> Unit = {}, change: (Int) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Row(modifier.fillMaxWidth().heightIn(min = 46.dp)
@@ -164,8 +170,9 @@ internal fun SettingChoice(label: String, value: String, modifier: Modifier = Mo
             val key = event.nativeKeyEvent
             when (key.keyCode) {
                 AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    if (key.action == AndroidKeyEvent.ACTION_DOWN && key.repeatCount == 0)
-                        change(if (key.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT) -1 else 1)
+                    val left = key.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT
+                    if (key.action == AndroidKeyEvent.ACTION_DOWN && key.repeatCount == 0 &&
+                        (if (left) canStepLeft else canStepRight)) change(if (left) -1 else 1)
                     true
                 }
                 AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
@@ -176,6 +183,10 @@ internal fun SettingChoice(label: String, value: String, modifier: Modifier = Mo
         }
         .semantics(mergeDescendants = true) {
             contentDescription = "$label: $value"
+            customActions = buildList {
+                if (canStepLeft) add(CustomAccessibilityAction("Предыдущее значение") { change(-1); true })
+                if (canStepRight) add(CustomAccessibilityAction("Следующее значение") { change(1); true })
+            }
         }
         .focusable()
         .background(if (focused) TvColors.Focus else TvColors.Surface, RoundedCornerShape(8.dp))
@@ -183,7 +194,17 @@ internal fun SettingChoice(label: String, value: String, modifier: Modifier = Mo
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, Modifier.weight(1f), fontSize = 16.sp, lineHeight = 20.sp, maxLines = 2,
             color = if (focused) TvColors.Background else TvColors.Text)
-        Text(if (focused) "‹  $value  ›" else value, Modifier.widthIn(max = 158.dp), fontSize = 15.sp, lineHeight = 20.sp, maxLines = 2,
+        val arrowInk = TvColors.Background
+        val displayedValue = buildAnnotatedString {
+            if (focused) withStyle(SpanStyle(color = if (canStepLeft) arrowInk else arrowInk.copy(alpha = .28f))) {
+                append("‹  ")
+            }
+            append(value)
+            if (focused) withStyle(SpanStyle(color = if (canStepRight) arrowInk else arrowInk.copy(alpha = .28f))) {
+                append("  ›")
+            }
+        }
+        Text(displayedValue, Modifier.widthIn(max = 158.dp), fontSize = 15.sp, lineHeight = 20.sp, maxLines = 2,
             color = if (focused) TvColors.Background else TvColors.Muted)
     }
 }
@@ -355,13 +376,15 @@ private fun CatalogSettingsPreview(settings: AppSettings) {
 @Composable
 private fun NotificationSettingsPreview(settings: AppSettings) {
     SettingsExampleStage {
-        Box(Modifier.fillMaxSize().clearAndSetSemantics {
-            contentDescription = "Пример уведомления о новом эфире"
-        }) {
+        Box(Modifier.fillMaxSize()) {
             PreviewScene(animationsEnabled = settings.animationsEnabled, modifier = Modifier.fillMaxSize())
-            LiveNotificationBanner(Channel(id = "settings-example", login = "settings_example",
-                name = "Дядя на танке", title = "", category = "Мир Танков", imageUrl = "", liveMessage = "Начал трансляцию"),
-                Modifier.align(Alignment.TopCenter).padding(24.dp))
+            if (settings.followNotificationsEnabled) {
+                LiveNotificationBanner(Channel(id = "settings-example", login = "settings_example",
+                    name = "Дядя на танке", title = "", category = "Мир Танков", imageUrl = "", liveMessage = "Начал трансляцию"),
+                    Modifier.align(Alignment.TopCenter).padding(24.dp).clearAndSetSemantics {
+                        contentDescription = "Пример уведомления о новом эфире"
+                    })
+            }
         }
     }
     Text(if (settings.followNotificationsEnabled) "Во время просмотра, когда канал из подписок начинает эфир. Нужен вход в Twitch."

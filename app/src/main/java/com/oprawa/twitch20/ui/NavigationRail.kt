@@ -2,6 +2,9 @@ package com.oprawa.twitch20.ui
 
 import android.view.KeyEvent as AndroidKeyEvent
 import android.view.ViewConfiguration
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -25,14 +29,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.tv.material3.Text
+import androidx.tv.material3.LocalTextStyle
 import coil3.compose.AsyncImage
 import com.oprawa.twitch20.data.Channel
 import kotlinx.coroutines.delay
@@ -50,6 +61,43 @@ data class FollowingSidebarState(
 
 private data class RailEntry(val key: String, val label: String)
 
+private val entries = listOf(RailEntry("search", "Поиск"), RailEntry("following", "Каналы"),
+    RailEntry("recordings", "Записи"), RailEntry("categories", "Категории"),
+    RailEntry("streams", "Рекомендации"))
+private val railLabelSize = 14.sp
+private val compactRailWidth = 84.dp
+private val expandedRailWidth: Dp
+    @Composable get() {
+        val measurer = rememberTextMeasurer()
+        val density = LocalDensity.current
+        val labelStyle = LocalTextStyle.current.copy(fontSize = railLabelSize, fontWeight = FontWeight.SemiBold)
+        return remember(measurer, density, labelStyle) {
+            val labelPx = (entries.map { it.label } + "Настройки").maxOf {
+                measurer.measure(it, labelStyle, maxLines = 1).size.width
+            }
+            // Outer padding 2×10, row padding 2×17, icon 30 and gap 12 dp.
+            // Allow a little room for rounding across the separately measured children.
+            maxOf(208.dp, 100.dp + with(density) { labelPx.toDp() })
+        }
+    }
+
+/** The catalog keeps its viewport. Only a dedicated rail-channel preview reserves the open menu. */
+@Composable
+internal fun CatalogNavigationLayout(
+    modifier: Modifier = Modifier,
+    channelPreview: Boolean = false,
+    waitingForContent: Boolean = false,
+    rail: @Composable (needsInitialFocus: Boolean) -> Unit,
+    content: @Composable () -> Unit,
+) {
+    var layoutHasFocus by remember { mutableStateOf(false) }
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    Box(modifier.fillMaxSize().onFocusChanged { layoutHasFocus = it.hasFocus }.focusGroup()) {
+        Box(Modifier.zIndex(1f)) { rail(waitingForContent && windowFocused && !layoutHasFocus) }
+        Box(Modifier.fillMaxSize().padding(start = if (channelPreview) expandedRailWidth else compactRailWidth)) { content() }
+    }
+}
+
 /** Search above the library, followed channels below it, Settings alone at the bottom. */
 @Composable
 fun NavigationRail(
@@ -66,15 +114,17 @@ fun NavigationRail(
     onChannelFocusChanged: (String?) -> Unit = {},
     rankedOfflineLogins: List<String> = emptyList(),
     allowExpand: Boolean = true,
+    animationsEnabled: Boolean = true,
+    needsInitialFocus: Boolean = false,
 ) {
-    val entries = listOf(RailEntry("search", "Поиск"), RailEntry("following", "Каналы"),
-        RailEntry("recordings", "Записи"), RailEntry("categories", "Категории"),
-        RailEntry("streams", "Рекомендации"))
     BoxWithConstraints(modifier.fillMaxHeight()) {
     // Five destinations + Settings + spacing/divider; only show complete shortcut rows.
     val capacity = ((maxHeight - 332.dp) / 46.dp).toInt().coerceIn(0, 4)
     var railFocused by remember { mutableStateOf(false) }
     val expanded = railFocused && allowExpand
+    val motion = rememberPreviewMotionEnabled(animationsEnabled)
+    val reveal by animateFloatAsState(if (expanded) 1f else 0f,
+        animationSpec = if (expanded && motion) tween(140) else snap(), label = "rail labels")
     var focusedKey by remember { mutableStateOf<String?>(null) }
     val channelsById = following.channels.associateBy { it.id }
     val offlineByLogin = following.channels.filterNot { it.live }.associateBy { it.login }
@@ -98,6 +148,14 @@ fun NavigationRail(
         focusKeys.associateWith { requesterCache.getOrPut(it) { FocusRequester() } }
     }
     val currentRequesters by rememberUpdatedState(requesters)
+    LaunchedEffect(needsInitialFocus, selected) {
+        if (needsInitialFocus) {
+            // Let the mounted content claim its first button/card. During a slow load
+            // there is no body target to receive the first remote key.
+            withFrameNanos { }
+            (currentRequesters[selected] ?: currentRequesters.getValue("streams")).requestFocus()
+        }
+    }
     fun focusChannel(id: String) {
         currentRequesters["live:$id"]?.requestFocus()
     }
@@ -108,7 +166,11 @@ fun NavigationRail(
             else focusChannel(channelIds[removedIndex.coerceAtMost(channelIds.lastIndex)])
         }
     }
-    Column(Modifier.width(if (expanded) 208.dp else 84.dp).fillMaxHeight()
+    Column(Modifier.width(if (expanded) expandedRailWidth else compactRailWidth).fillMaxHeight()
+        .drawWithContent {
+            val edge = compactRailWidth.toPx() + (size.width - compactRailWidth.toPx()) * reveal
+            clipRect(right = edge) { this@drawWithContent.drawContent() }
+        }
         .background(TvColors.Surface)
         .onFocusChanged {
             railFocused = it.hasFocus
@@ -261,11 +323,11 @@ private fun RailRow(label: String, active: Boolean, expanded: Boolean, modifier:
         .focusable()
         .background(when { focused -> TvColors.Focus; active -> TvColors.Raised; else -> Color.Transparent }, TvShapes.Control)
         .border(1.dp, if (active && !focused) TvColors.Border else Color.Transparent, TvShapes.Control)
-        .padding(horizontal = if (expanded) 10.dp else 0.dp),
+        .padding(horizontal = if (expanded) 17.dp else 0.dp),
         horizontalArrangement = if (expanded) Arrangement.spacedBy(12.dp) else Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) { icon(ink) }
-        if (expanded) Text(label, modifier = Modifier.weight(1f), color = ink, fontSize = 14.sp,
+        if (expanded) Text(label, modifier = Modifier.weight(1f), color = ink, fontSize = railLabelSize,
             lineHeight = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             fontWeight = if (active || focused) FontWeight.SemiBold else FontWeight.Normal)
     }

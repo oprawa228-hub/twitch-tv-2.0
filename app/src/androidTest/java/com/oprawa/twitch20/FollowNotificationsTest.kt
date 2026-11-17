@@ -123,10 +123,13 @@ class FollowNotificationsTest {
         fixture.publish(emptyList())
         fixture.change { it.copy(settingsOpen = true) }
         openNotificationSettings()
+        val preview = By.desc("Пример уведомления о новом эфире")
+        assertTrue(device.wait(Until.hasObject(preview), 3_000))
         val blocked = channel("While settings")
         fixture.publish(listOf(blocked))
         assertAbsent(blocked, 400)
         changeNotificationSetting(enabled = false)
+        assertTrue(device.wait(Until.gone(preview), 3_000))
         assertFalse("Toggle did not immediately persist to the host", fixture.config.value.settings.followNotificationsEnabled)
         closeSettings()
         assertAbsent(blocked, 500)
@@ -136,6 +139,7 @@ class FollowNotificationsTest {
         fixture.change { it.copy(settingsOpen = true) }
         openNotificationSettings(enabled = false)
         changeNotificationSetting(enabled = true)
+        assertTrue(device.wait(Until.hasObject(preview), 3_000))
         closeSettings()
         assertAbsent(disabled, 500)
         val enabled = channel("After enabled")
@@ -316,21 +320,27 @@ class FollowNotificationsTest {
     }
     private fun openNotificationSettings(enabled: Boolean = true) {
         val overview = "Уведомления: ${notificationValue(enabled)}"
-        assertTrue(device.wait(Until.hasObject(By.desc(overview)), 3_000))
-        val deadline = SystemClock.elapsedRealtime() + 3_000
-        while (!focusedContains { it.contentDescription == overview } && SystemClock.elapsedRealtime() < deadline) {
-            device.pressDPadDown()
-            SystemClock.sleep(80)
-        }
-        assertTrue("Could not focus notifications with the remote", focusedContains { it.contentDescription == overview })
+        // This host has no account row. Wait for each focus transition so a delayed
+        // accessibility snapshot cannot issue an extra Down past Notifications.
+        awaitSettingFocus("Интерфейс:")
+        device.pressDPadDown()
+        awaitSettingFocus("Просмотр:")
+        device.pressDPadDown()
+        awaitSettingFocus(overview)
         device.pressDPadCenter()
-        val setting = "Новые эфиры подписок: ${notificationValue(enabled)}"
-        assertTrue(device.wait(Until.hasObject(By.desc(setting)), 3_000))
-        val focusDeadline = SystemClock.elapsedRealtime() + 2_000
-        while (!focusedContains { it.contentDescription == setting } && SystemClock.elapsedRealtime() < focusDeadline) {
+        awaitSettingFocus("Новые эфиры подписок: ${notificationValue(enabled)}")
+    }
+    private fun awaitSettingFocus(prefix: String) {
+        val label = By.descStartsWith(prefix)
+        val deadline = SystemClock.elapsedRealtime() + 5_000
+        do {
+            if (device.hasObject(By.focused(true).hasDescendant(label)) ||
+                device.hasObject(By.descStartsWith(prefix).focused(true))) return
             SystemClock.sleep(40)
-        }
-        assertTrue(focusedContains { it.contentDescription == setting })
+        } while (SystemClock.elapsedRealtime() < deadline)
+        val focused = device.findObject(By.focused(true))
+        val actual = focused?.contentDescription ?: focused?.children?.map { it.contentDescription ?: it.text }
+        fail("Expected remote focus on $prefix, observed $actual")
     }
     private fun changeNotificationSetting(enabled: Boolean) {
         if (enabled) device.pressDPadRight() else device.pressDPadLeft()
@@ -343,6 +353,6 @@ class FollowNotificationsTest {
         assertTrue(device.wait(Until.hasObject(By.text(ANCHOR)), 3_000))
         awaitAnchor()
     }
-    private fun notificationValue(enabled: Boolean) = if (enabled) "Включён" else "Выключен"
+    private fun notificationValue(enabled: Boolean) = if (enabled) "Вкл." else "Выкл."
     private companion object { const val ANCHOR = "Продолжить просмотр" }
 }

@@ -19,8 +19,12 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -57,7 +61,11 @@ fun AuthorScreen(onBack: () -> Unit) {
                 }
             }
         }
-        DocumentReader(opened.title, body ?: "Открываем текст…") { document = null }
+        val displayed = remember(body, opened) {
+            val text = body ?: "Открываем текст…"
+            if (opened == LicenseDocument.Notices) formatComponentNotices(text) else AnnotatedString(text)
+        }
+        DocumentReader(opened.title, displayed) { document = null }
     } else {
         LaunchedEffect(Unit) {
             when (lastDocument) {
@@ -128,7 +136,7 @@ fun UpdatesScreen(updater: UpdateManager, onBack: () -> Unit) {
         }
     }
     if (opened != null) {
-        DocumentReader("Что нового · ${opened.version}", opened.body) { openedNotes = null }
+        DocumentReader("Что нового · ${opened.version}", remember(opened.body) { AnnotatedString(opened.body) }) { openedNotes = null }
     } else {
         LaunchedEffect(Unit) {
             if (restoreNotesFocus && notes != null) notesButtonFocus.requestFocus()
@@ -208,7 +216,7 @@ internal fun UpdateState.releaseNotes(): ReleaseNotes? =
 
 private val notesHeading = Regex("""^ {0,3}#{1,6}\s+(.+?)(?:\s+#+)?\s*$""")
 private val notesBullet = Regex("""^(\s*)[-+*]\s+""")
-private val notesLink = Regex("""!?\[([^\]\r\n]+)\]\((?:[^()\r\n]|\([^()\r\n]*\))*\)""")
+private val notesLink = Regex("""!?\[([^\]\r\n]+)\]\(((?:[^()\r\n]|\([^()\r\n]*\))*)\)""")
 private val notesEmphasis = Regex("""(\*\*|__|`)(.+?)\1""")
 
 internal fun formatReleaseNotes(markdown: String): String = markdown.lineSequence().joinToString("\n") { line ->
@@ -217,8 +225,54 @@ internal fun formatReleaseNotes(markdown: String): String = markdown.lineSequenc
     notesEmphasis.replace(notesLink.replace(text) { it.groupValues[1] }) { it.groupValues[2] }
 }.trim()
 
+/** The bundled four-column Markdown table is readable on TV as stacked credits and a source index. */
+internal fun formatComponentNotices(markdown: String): AnnotatedString = buildAnnotatedString {
+    val heading = SpanStyle(fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
+    val secondary = SpanStyle(color = TvColors.Muted, fontSize = 16.sp)
+    val sources = mutableListOf<Pair<String, String>>()
+    var sourceHeading = "Источники"
+    fun plain(text: String) = notesEmphasis.replace(text) { it.groupValues[2] }
+    fun separate() { if (length > 0) append("\n\n") }
+    markdown.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.forEach { line ->
+        val cells = if (line.startsWith('|') && line.endsWith('|')) {
+            line.removeSurrounding("|").split('|').map { plain(it.trim()) }
+        } else emptyList()
+        when {
+            cells.size == 4 && cells[0] == "Компонент" -> {
+                separate()
+                withStyle(secondary) { append(cells.take(3).joinToString(" · ")) }
+                sourceHeading = cells[3]
+            }
+            cells.size == 4 && cells.all { it.startsWith("---") } -> Unit
+            cells.size == 4 -> {
+                separate()
+                withStyle(heading) { append(cells[0]) }
+                append("\n" + cells[1] + "\n")
+                withStyle(secondary) { append(cells[2]) }
+                sources += cells[0] to cells[3]
+            }
+            else -> {
+                separate()
+                val title = notesHeading.matchEntire(line)?.groupValues?.get(1)
+                if (title != null) withStyle(heading) { append(plain(title)) } else append(plain(line))
+            }
+        }
+    }
+    if (sources.isNotEmpty()) {
+        separate()
+        withStyle(heading) { append(sourceHeading) }
+        sources.forEach { (component, links) ->
+            separate()
+            withStyle(heading) { append(component) }
+            append('\n')
+            val expanded = notesLink.replace(links) { "${it.groupValues[1]} · ${it.groupValues[2]}" }
+            withStyle(secondary) { append(expanded.replace(", ", "\n")) }
+        }
+    }
+}
+
 @Composable
-private fun DocumentReader(title: String, body: String, onBack: () -> Unit) {
+private fun DocumentReader(title: String, body: AnnotatedString, onBack: () -> Unit) {
     val scroll = rememberScrollState()
     val focus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()

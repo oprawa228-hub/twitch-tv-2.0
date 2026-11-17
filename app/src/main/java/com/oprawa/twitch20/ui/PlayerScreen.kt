@@ -61,6 +61,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onLongClick as semanticLongClick
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -92,6 +93,8 @@ private val PlayerPanel get() = TvColors.Surface
 private val PlayerFocus get() = TvColors.Focus
 private val PlayerText get() = TvColors.Text
 private val PlayerMuted get() = TvColors.Muted
+
+private enum class HudControl { Rewind, PlayPause, Forward, Speed, Quality, Chat, Theater, Clock }
 
 /** Owns UI layers only; the caller owns and releases [session]. */
 @OptIn(UnstableApi::class)
@@ -150,7 +153,7 @@ fun PlayerScreen(
         ?.takeIf { it.isFinite() && it > 0f } ?: (16f / 9f)
     val density=LocalDensity.current
     var timelineFocused by remember { mutableStateOf(false) }
-    var focusCaption by remember { mutableStateOf("") }
+    var focusedControl by remember { mutableStateOf(HudControl.PlayPause) }
     val retryFocus = remember { FocusRequester() }
     val chatFocus = remember { FocusRequester() }
     val clockFocus = remember { FocusRequester() }
@@ -423,52 +426,68 @@ fun PlayerScreen(
                         Row(Modifier.offset(x = transportStart).align(Alignment.CenterStart),
                             horizontalArrangement=Arrangement.spacedBy(gap), verticalAlignment=Alignment.CenterVertically) {
                             if (!state.isLive) PlayerAction("Назад на 10 секунд", icon=PlayerGlyph.BACK, iconSize=actionWidth,
-                                onFocused={ focusCaption="Назад на 10 секунд" }) { session.seekBy(-10_000) }
+                                onFocused={ focusedControl = HudControl.Rewind }) { session.seekBy(-10_000) }
                             PlayerAction(if (state.showPauseAction) "Пауза" else if (state.isLive) "К эфиру" else "Смотреть",
                                 Modifier.focusRequester(pauseFocus), icon=if(state.showPauseAction) PlayerGlyph.PAUSE else PlayerGlyph.PLAY,
-                                prominent=true, onFocused={ timelineEnabled=true; focusCaption=if(state.showPauseAction) "Пауза" else if(state.isLive) "Вернуться к прямому эфиру" else "Продолжить просмотр" }) {
+                                prominent=true, onFocused={ timelineEnabled=true; focusedControl = HudControl.PlayPause }) {
                                 if (state.showPauseAction) session.pause() else session.resume()
                             }
                             if (!state.isLive) PlayerAction("Вперёд на 10 секунд", icon=PlayerGlyph.FORWARD, iconSize=actionWidth,
-                                onFocused={ focusCaption="Вперёд на 10 секунд" }) { session.seekBy(10_000) }
+                                onFocused={ focusedControl = HudControl.Forward }) { session.seekBy(10_000) }
                         }
                         Row(Modifier.align(Alignment.CenterEnd), horizontalArrangement=Arrangement.spacedBy(gap),
                             verticalAlignment=Alignment.CenterVertically) {
                             if (isVod && !state.isLive) PlayerAction("Скорость · ${VodPlaybackSpeed.label(state.playbackSpeed)}",
                                 Modifier.focusRequester(speedFocus), badge=VodPlaybackSpeed.label(state.playbackSpeed),
-                                speedIcon=true, iconSize=actionWidth, onFocused={ focusCaption="Скорость" }) { speedOpen=true }
+                                speedIcon=true, iconSize=actionWidth, onFocused={ focusedControl = HudControl.Speed }) { speedOpen=true }
                             PlayerAction("Качество", Modifier.focusRequester(qualityFocus), icon=PlayerGlyph.QUALITY, iconSize=actionWidth, badge=state.activeQuality.ifBlank { "Авто" },
-                                onFocused={ focusCaption="Качество" }) { qualityOpen=true }
+                                onFocused={ focusedControl = HudControl.Quality }) { qualityOpen=true }
                             if (chatContent != null) {
                                 PlayerAction(if(settings.overlayEnabled) "Чат: вкл" else "Чат: выкл",
                                     Modifier.focusRequester(chatFocus), active=settings.overlayEnabled, icon=PlayerGlyph.CHAT, iconSize=actionWidth,
-                                    onFocused={ focusCaption="Чат · ${if(settings.overlayEnabled) "включён" else "выключен"} · Удерживайте OK для настройки" },
+                                    onFocused={ focusedControl = HudControl.Chat },
                                     onLongClick={ pending -> swallowedKey=pending; openProfile(SettingsEditorPage.OVERLAY,"chat") }) {
                                     onSettingsChange(settings.toggleChat(ChatMode.OVERLAY))
                                 }
                                 PlayerAction(if(settings.theaterEnabled) "Кинотеатр: вкл" else "Кинотеатр: выкл",
                                     Modifier.focusRequester(theaterFocus), active=settings.theaterEnabled, icon=PlayerGlyph.THEATER, iconSize=actionWidth,
-                                    onFocused={ focusCaption="Кинотеатр · ${if(settings.theaterEnabled) "включён" else "выключен"} · Удерживайте OK для настройки" },
+                                    onFocused={ focusedControl = HudControl.Theater },
                                     onLongClick={ pending -> swallowedKey=pending; openProfile(SettingsEditorPage.THEATER,"theater") }) {
                                     onSettingsChange(settings.toggleChat(ChatMode.THEATER))
                                 }
                             }
                             PlayerAction("Часы", Modifier.focusRequester(clockFocus), icon=PlayerGlyph.CLOCK, iconSize=actionWidth, active=settings.showClock,
-                                onFocused={ focusCaption="Часы" },
+                                onFocused={ focusedControl = HudControl.Clock },
                                 onLongClick={ pending -> swallowedKey=pending; openProfile(SettingsEditorPage.CLOCK,"clock") }) {
                                 onSettingsChange(settings.copy(showClock=!settings.showClock))
                             }
                         }
                     }
-                    Text(if(timelineFocused) {
-                        if(seek.active) "OK — перейти к ${timeText(seek.targetMs ?: state.positionMs)}" else "Перемотка"
-                    } else when (focusCaption) {
-                        "Скорость" -> "Скорость · ${VodPlaybackSpeed.label(state.playbackSpeed)}"
-                        "Качество" -> "Качество · ${state.activeQuality.ifBlank { "Авто" }}"
-                        "Часы" -> "Часы · ${if(settings.showClock) "показаны" else "скрыты"} · Удерживайте OK для настройки"
-                        else -> focusCaption
-                    }, color=PlayerText, fontSize=12.sp, maxLines=1,
-                        overflow=TextOverflow.Ellipsis, textAlign=TextAlign.Center, modifier=Modifier.fillMaxWidth().heightIn(min=18.dp))
+                    val caption = if (timelineFocused) {
+                        if (seek.active) "OK — перейти к ${timeText(seek.targetMs ?: state.positionMs)}" else "Перемотка"
+                    } else when (focusedControl) {
+                        HudControl.Rewind -> "Назад на 10 секунд"
+                        HudControl.PlayPause -> when {
+                            state.showPauseAction -> "Пауза"
+                            state.isLive -> "Вернуться к прямому эфиру"
+                            else -> "Продолжить просмотр"
+                        }
+                        HudControl.Forward -> "Вперёд на 10 секунд"
+                        HudControl.Speed -> "Скорость · ${VodPlaybackSpeed.label(state.playbackSpeed)}"
+                        HudControl.Quality -> "Качество · ${state.activeQuality.ifBlank { "Авто" }}"
+                        HudControl.Chat -> "Чат · ${if (settings.overlayEnabled) "включён" else "выключен"} · Удерживайте OK для настройки"
+                        HudControl.Theater -> "Кинотеатр · ${if (settings.theaterEnabled) "включён" else "выключен"} · Удерживайте OK для настройки"
+                        HudControl.Clock -> "Часы · ${if (settings.showClock) "показаны" else "скрыты"} · Удерживайте OK для настройки"
+                    }
+                    val captionAlignment = when {
+                        timelineFocused -> TextAlign.Start
+                        focusedControl == HudControl.PlayPause || focusedControl == HudControl.Rewind ||
+                            focusedControl == HudControl.Forward -> if (state.isLive) TextAlign.Start else TextAlign.Center
+                        else -> TextAlign.End
+                    }
+                    Text(caption, color = PlayerText, fontSize = 14.sp, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, textAlign = captionAlignment,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 20.dp))
                 }
             }
         }
@@ -624,6 +643,7 @@ private fun PlayerAction(label: String, modifier: Modifier = Modifier,
             if(hasIcon) contentDescription=label
             selected = active
             onClick { onClick(); true }
+            if (onLongClick != null) semanticLongClick("Открыть настройки") { onLongClick(null); true }
         }
         .focusable().then(if(!hasIcon) Modifier.padding(horizontal = 14.dp, vertical = 11.dp) else Modifier),
         contentAlignment = if(hasIcon) Alignment.Center else Alignment.CenterStart) {

@@ -61,16 +61,18 @@ internal fun ChatSettingsControls(
     }
 
     @Composable
-    fun Parameter(key: String, label: String, value: String, first: Boolean = false, change: (Int) -> Unit) {
+    fun Parameter(key: String, label: String, value: String, first: Boolean = false,
+        canStepLeft: Boolean = true, canStepRight: Boolean = true, change: (Int) -> Unit) {
         val created = remember(key, first) { if (first) firstFocus else FocusRequester() }
         val focus = launchers.getOrPut(key) { created }
         SettingChoice(label, value, Modifier.focusRequester(focus),
+            canStepLeft = canStepLeft, canStepRight = canStepRight,
             onFocused = { state.focusSetting(key) }, change = change)
     }
 
     @Composable
     fun Toggle(key: String, label: String, enabled: Boolean, first: Boolean = false, change: () -> Unit) {
-        Parameter(key, label, enabledLabel(enabled), first) { if ((it > 0) != enabled) change() }
+        Parameter(key, label, enabledLabel(enabled), first, canStepLeft = enabled, canStepRight = !enabled) { change() }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -119,8 +121,10 @@ internal fun ChatSettingsControls(
             }
             SettingsEditorPage.INTERFACE -> {
                 SettingsSectionTitle("Интерфейс")
-                Parameter("CARD_PREVIEW", "Предпросмотр", previewModeLabel(settings), first = true) { delta ->
-                    val mode = (previewModeIndex(settings) + delta).coerceIn(0, 2)
+                val previewIndex = previewModeIndex(settings)
+                Parameter("CARD_PREVIEW", "Предпросмотр", previewModeLabel(settings), first = true,
+                    canStepLeft = previewIndex > 0, canStepRight = previewIndex < 2) { delta ->
+                    val mode = previewIndex + delta
                     onChange(settings.copy(cardPreviewEnabled = mode != 0, previewSoundEnabled = mode == 2))
                 }
                 Toggle("ANIMATIONS", "Анимации интерфейса и примеров", settings.animationsEnabled) {
@@ -165,7 +169,7 @@ private fun SettingsSectionTitle(title: String) {
         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
 }
 
-internal fun enabledLabel(enabled: Boolean) = if (enabled) "Включён" else "Выключен"
+internal fun enabledLabel(enabled: Boolean) = if (enabled) "Вкл." else "Выкл."
 
 internal fun chatModeLabel(mode: ChatMode) = when (mode) {
     ChatMode.OFF -> "Без чата"

@@ -36,15 +36,22 @@ def focus(label):
     for _ in range(24):
         root=ET.fromstring(hierarchy()); nodes=list(root.iter('node'))
         parents={child:parent for parent in nodes for child in parent}
-        targets=[n for n in nodes if n.get('text')==label or n.get('content-desc')==label]
-        if not targets:raise RuntimeError('Visible target not found: '+label)
-        target=next((n for n in targets if n.get('focusable')=='true'),targets[0])
-        while target.get('focusable')!='true' and target in parents:target=parents[target]
+        matches = sorted((n for n in nodes if label in (n.get('content-desc'), n.get('text'))),
+                         key=lambda n: n.get('content-desc') != label)
+        for target in matches:
+            while target.get('focusable') != 'true' and target in parents:
+                target = parents[target]
+            if target.get('focusable') == 'true':
+                break
+        else:
+            raise RuntimeError('Focusable target not found: '+label)
         focused=next((n for n in nodes if n.get('focused')=='true'),None)
         if focused is None:adb('shell','input','keyevent','KEYCODE_DPAD_DOWN');continue
         tx1,ty1,tx2,ty2=bounds(target);fx1,fy1,fx2,fy2=bounds(focused)
         tx,ty=(tx1+tx2)/2,(ty1+ty2)/2;fx,fy=(fx1+fx2)/2,(fy1+fy2)/2
-        if fx1<=tx<=fx2 and fy1<=ty<=fy2:print('Focused:',label);return
+        if target is focused:
+            print('Focused:', label)
+            return
         direction='LEFT' if tx2<=fx1 else 'RIGHT' if tx1>=fx2 else 'UP' if ty<fy else 'DOWN'
         adb('shell','input','keyevent','KEYCODE_DPAD_'+direction)
     raise RuntimeError('D-pad cannot reach '+label)

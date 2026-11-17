@@ -162,19 +162,13 @@ fun CatalogScreen(
         allEntries.filter { it.kind == selectedKind } else allEntries
     val keys = entries.map { it.key }
     val state = rememberLazyGridState()
-    // The expanding rail remeasures card heights while this catalog is unfocused.
-    // Keep the last browsing viewport separately from LazyGrid's live scroll anchor.
-    var suspendedIndex by rememberSaveable { mutableStateOf(-1) }
-    var suspendedOffset by rememberSaveable { mutableStateOf(0) }
     var previousFilter by rememberSaveable { mutableStateOf(searchFilter) }
     LaunchedEffect(searchFilter) {
         if (searchQuery != null && previousFilter != searchFilter) {
             previousFilter = searchFilter
-            suspendedIndex = -1
             state.requestScrollToItem(0)
         }
     }
-    var gridHasFocus by remember { mutableStateOf(false) }
     val requesterCache = remember { mutableMapOf<String, FocusRequester>() }
     val requesters = remember(keys) {
         requesterCache.apply { keys.forEach { getOrPut(it) { FocusRequester() } } }
@@ -201,18 +195,6 @@ fun CatalogScreen(
     }
     val preview = rememberCatalogVideoPreview(focusedChannel, previewEnabled,
         state.isScrollInProgress, resolvePreview, previewSoundEnabled)
-
-    LaunchedEffect(gridHasFocus) {
-        if (gridHasFocus && suspendedIndex >= 0) {
-            // Requesting a card first moves focus out of the rail. Its collapsed width
-            // must be measured before restoring the viewport, otherwise bring-into-view
-            // retains an offset calculated for the narrower preview grid.
-            withFrameNanos { }
-            withFrameNanos { }
-            state.scrollToItem(suspendedIndex, suspendedOffset)
-            suspendedIndex = -1
-        }
-    }
 
     LaunchedEffect(selectedKey, entries.size, hasMore, busy, error) {
         if (hasMore && !busy && error == null && entries.isNotEmpty() &&
@@ -265,7 +247,7 @@ fun CatalogScreen(
                 Text(title, fontSize = 25.sp, fontWeight = FontWeight.Bold,
                     color = TvColors.Text, modifier = Modifier.weight(1f), maxLines = 1,
                     overflow = TextOverflow.Ellipsis)
-                if (busy) Text("Обновление…", fontSize = 12.sp, color = TvColors.Muted)
+                if (busy && entries.isNotEmpty()) Text("Обновление…", fontSize = 12.sp, color = TvColors.Muted)
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -322,14 +304,7 @@ fun CatalogScreen(
             LazyVerticalGrid(columns = GridCells.Fixed(columns), state = state,
                 contentPadding = PaddingValues(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()
-                    .onFocusChanged { focus ->
-                        if (gridHasFocus && !focus.hasFocus) {
-                            suspendedIndex = state.firstVisibleItemIndex
-                            suspendedOffset = state.firstVisibleItemScrollOffset
-                        }
-                        gridHasFocus = focus.hasFocus
-                    }.focusGroup()) {
+                verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize().focusGroup()) {
                 val sections = if (showSections) CatalogKind.entries.map { kind -> entries.filter { it.kind == kind } }
                     else listOf(entries)
                 sections.forEachIndexed { index, section ->

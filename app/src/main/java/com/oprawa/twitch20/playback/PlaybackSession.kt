@@ -49,6 +49,8 @@ enum class PlaybackStatus { Idle, Buffering, Ready, Ended, Error }
 
 data class QualityOption(val id: String, val label: String, val height: Int? = null, val frameRate: Int? = null)
 
+internal data class PlaybackResume(val positionMs: Long, val playWhenReady: Boolean)
+
 data class PlaybackState(
     val mediaId: String = "",
     val status: PlaybackStatus = PlaybackStatus.Idle,
@@ -306,7 +308,7 @@ class PlaybackSession internal constructor(context: Context, dataSourceFactory: 
 
     fun play(url: String, mediaId: String, isLive: Boolean, startPositionMs: Long = 0,
         requestStartedAtMs: Long = SystemClock.elapsedRealtime(),
-        progressiveVariants: List<VideoVariant> = emptyList()) {
+        progressiveVariants: List<VideoVariant> = emptyList(), initialPlayWhenReady: Boolean = true) {
         check(!released) { "Playback session has been released" }
         sourceRecoveryJob?.cancel()
         sourceRecoveryJob = null
@@ -316,7 +318,7 @@ class PlaybackSession internal constructor(context: Context, dataSourceFactory: 
         val sameMedia = previous.mediaId == mediaId
         // ON_STOP pauses the player; a source resolving afterwards must retain
         // the user's pre-background intent for the following ON_START.
-        val requestedPlayback = if (!sameMedia) true
+        val requestedPlayback = if (!sameMedia) initialPlayWhenReady
             else if (backgrounded) resumeAfterBackground else player.playWhenReady
         qualityPreference.beginMedia(mediaId)
         backgrounded = false
@@ -348,6 +350,18 @@ class PlaybackSession internal constructor(context: Context, dataSourceFactory: 
         if (!isLive && startPositionMs > 0) player.seekTo(startPositionMs)
         player.prepare()
         player.playWhenReady = requestedPlayback
+    }
+
+    internal fun resumePoint(): PlaybackResume? {
+        if (released || player.currentMediaItem == null) return null
+        return PlaybackResume(
+            positionMs = when {
+                mutableState.value.isLive -> 0L
+                backgrounded -> savedPositionMs.coerceAtLeast(0)
+                else -> player.currentPosition.coerceAtLeast(0)
+            },
+            playWhenReady = if (backgrounded) resumeAfterBackground else player.playWhenReady,
+        )
     }
 
     fun setPlaybackSpeed(speed: Float) {
